@@ -1114,7 +1114,7 @@ let nativeWindowsCursorRecordingStartMs = 0;
 let nativeWindowsPauseStartedAtMs: number | null = null;
 let nativeWindowsPauseRanges: Array<{ startMs: number; endMs: number }> = [];
 let nativeWindowsIsPaused = false;
-const NATIVE_WINDOWS_CAPTURE_STOP_TIMEOUT_MS = 90_000;
+const NATIVE_WINDOWS_CAPTURE_STOP_TIMEOUT_MS = 8_000;
 let nativeMacCaptureProcess: ChildProcessWithoutNullStreams | null = null;
 let nativeMacCaptureOutput = "";
 let nativeMacCaptureTargetPath: string | null = null;
@@ -1149,6 +1149,41 @@ function summarizeNativeCaptureState() {
 			outputTail: nativeMacCaptureOutput.slice(-4000),
 		},
 	};
+}
+
+class NativeWindowsCaptureStopTimeoutError extends Error {
+	constructor(
+		readonly outputPath: string | null,
+		readonly helperOutput: string,
+	) {
+		super(
+			`Timed out waiting for native Windows capture to stop. Output path: ${
+				outputPath ?? "unknown"
+			}. Output: ${helperOutput.trim()}`,
+		);
+		this.name = "NativeWindowsCaptureStopTimeoutError";
+	}
+}
+
+async function forceKillNativeWindowsCaptureProcess(
+	proc: ChildProcessWithoutNullStreams,
+): Promise<void> {
+	if (!proc.killed) {
+		proc.kill();
+	}
+
+	if (process.platform !== "win32" || !proc.pid) {
+		return;
+	}
+
+	await new Promise<void>((resolve) => {
+		const killer = spawn("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
+			stdio: "ignore",
+			windowsHide: true,
+		});
+		killer.once("error", () => resolve());
+		killer.once("close", () => resolve());
+	});
 }
 
 function logNativeHelperChunk(
@@ -2041,14 +2076,11 @@ function waitForNativeWindowsCaptureStop(proc: ChildProcessWithoutNullStreams) {
 	return new Promise<string>((resolve, reject) => {
 		const timer = setTimeout(() => {
 			cleanup();
-			if (!proc.killed) {
-				proc.kill();
-			}
+			void forceKillNativeWindowsCaptureProcess(proc);
 			reject(
-				new Error(
-					`Timed out waiting for native Windows capture to stop. Output path: ${
-						nativeWindowsCaptureTargetPath ?? "unknown"
-					}. Output: ${nativeWindowsCaptureOutput.trim()}`,
+				new NativeWindowsCaptureStopTimeoutError(
+					nativeWindowsCaptureTargetPath,
+					nativeWindowsCaptureOutput,
 				),
 			);
 		}, NATIVE_WINDOWS_CAPTURE_STOP_TIMEOUT_MS);
@@ -3569,6 +3601,110 @@ export function registerIpcHandlers(
 				message: "Native Windows recording session stored successfully",
 			};
 		} catch (error) {
+			if (error instanceof NativeWindowsCaptureStopTimeoutError) {
+				const screenVideoPath = preferredPath ?? error.outputPath;
+				writeAppLog("error", "[native-wgc] stop timed out; forcing recording state closed", {
+					error,
+					discard: Boolean(discard),
+					screenVideoPath,
+					preferredWebcamPath,
+					recordingId,
+					state: summarizeNativeCaptureState(),
+				});
+
+				if (cursorCaptureMode === "editable-overlay") {
+					await stopCursorRecording();
+				} else {
+					pendingCursorRecordingData = null;
+				}
+
+				if (screenVideoPath && discard) {
+					pendingCursorRecordingData = null;
+					await endLiveCursorTelemetry(null);
+					await removeRecordingArtifacts(screenVideoPath, preferredWebcamPath);
+					return {
+						success: true,
+						discarded: true,
+						message: "Native Windows recording was force-stopped and discarded.",
+					};
+				}
+
+				if (!screenVideoPath) {
+					pendingCursorRecordingData = null;
+					await endLiveCursorTelemetry(null);
+					return {
+						success: true,
+						message: "Native Windows recording was force-stopped.",
+					};
+				}
+
+				if (cursorCaptureMode === "editable-overlay") {
+					compactPendingCursorTelemetryPauseRanges(nativeWindowsPauseRanges);
+					shiftPendingCursorTelemetry(nativeWindowsCursorOffsetMs);
+					await writePendingCursorTelemetry(screenVideoPath);
+				}
+
+				const screenStats = await fs.stat(screenVideoPath).catch(() => null);
+				if (!screenStats?.isFile() || screenStats.size <= 0) {
+					await writeRecordingSessionManifest(
+						{
+							screenVideoPath,
+							createdAt: recordingId,
+							cursorCaptureMode,
+						},
+						{
+							status: "failed",
+							diagnostics: {
+								reason: "force-stopped-timeout",
+								output: nativeWindowsCaptureOutput.slice(-4000),
+							},
+						},
+					).catch((manifestError) => {
+						console.warn("[native-wgc] failed to write forced-stop manifest:", manifestError);
+					});
+					return {
+						success: true,
+						message: "Native Windows recording was force-stopped before a usable video was saved.",
+					};
+				}
+
+				const stoppedInfo = readNativeWindowsRecordingStoppedInfo(nativeWindowsCaptureOutput);
+				const stoppedWebcamPath = stoppedInfo?.webcamPath ?? preferredWebcamPath;
+				let webcamVideoPath: string | undefined;
+				if (stoppedWebcamPath) {
+					const webcamStats = await fs.stat(stoppedWebcamPath).catch(() => null);
+					if (webcamStats?.isFile() && webcamStats.size > 0) {
+						webcamVideoPath = stoppedWebcamPath;
+					}
+				}
+				const session: RecordingSession = {
+					screenVideoPath,
+					...(webcamVideoPath ? { webcamVideoPath } : {}),
+					createdAt: recordingId,
+					cursorCaptureMode,
+				};
+				setCurrentRecordingSessionState(session);
+				currentProjectPath = null;
+				await writeRecordingSessionManifest(session, {
+					status: "recoverable",
+					diagnostics: {
+						reason: "force-stopped-timeout",
+						output: nativeWindowsCaptureOutput.slice(-4000),
+					},
+				});
+				writeAppLog("warn", "[native-wgc] stop force-completed with recoverable package", {
+					screenVideoPath,
+					webcamVideoPath,
+					recordingId,
+				});
+				return {
+					success: true,
+					path: screenVideoPath,
+					session,
+					message: "Native Windows recording was force-stopped and saved as recoverable.",
+				};
+			}
+
 			console.error("Failed to stop native Windows recording:", error);
 			writeAppLog("error", "[native-wgc] stop failed", {
 				error,
