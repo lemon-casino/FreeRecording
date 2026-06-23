@@ -1177,7 +1177,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			const platform = await window.electronAPI.getPlatform();
 			const videoProfile = createRecordingVideoProfile(appSettingsRef.current);
 
-			if (platform === "win32") {
+			const useWindowsDisplayMedia =
+				platform === "win32" && !selectedSource.id.startsWith("window:");
+
+			if (useWindowsDisplayMedia) {
 				// getDisplayMedia + setDisplayMediaRequestHandler (main.ts) supplies the
 				// pre-selected source. Editable cursor mode excludes the system cursor so
 				// the editor can render a replacement; system mode bakes it into the video.
@@ -1192,6 +1195,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					audio: systemAudioEnabled,
 				} as DisplayMediaStreamOptions);
 			} else {
+				// Windows app-window capture can expose the WGC yellow border while still
+				// yielding black frames through getDisplayMedia. The desktopCapturer
+				// chromeMediaSourceId path is more reliable for individual windows.
 				const videoConstraints = {
 					mandatory: {
 						chromeMediaSource: CHROME_MEDIA_SOURCE,
