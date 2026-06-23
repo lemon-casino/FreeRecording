@@ -104,6 +104,22 @@ export function isRecordingPackagePath(filePath?: string | null): boolean {
 	return path.extname(path.resolve(filePath)).toLowerCase() === RECORDING_PACKAGE_EXTENSION;
 }
 
+export function normalizeRecordingDirectoryBasePath(recordingDir: string): string {
+	const resolved = path.resolve(recordingDir);
+	const parsed = path.parse(resolved);
+	const segments = resolved.slice(parsed.root.length).split(path.sep).filter(Boolean);
+	const packageSegmentIndex = segments.findIndex(
+		(segment) => path.extname(segment).toLowerCase() === RECORDING_PACKAGE_EXTENSION,
+	);
+
+	if (packageSegmentIndex < 0) {
+		return resolved;
+	}
+
+	const baseSegments = segments.slice(0, packageSegmentIndex);
+	return baseSegments.length > 0 ? path.join(parsed.root, ...baseSegments) : parsed.root;
+}
+
 export function getRecordingPackageDirForVideoPath(videoPath: string): string | null {
 	const resolved = path.resolve(videoPath);
 	const dir = path.dirname(resolved);
@@ -114,7 +130,10 @@ export function getRecordingPackagePaths(
 	recordingDir: string,
 	recordingId: number,
 ): RecordingPackagePaths {
-	const packageDir = path.join(recordingDir, getRecordingPackageName(recordingId));
+	const packageDir = path.join(
+		normalizeRecordingDirectoryBasePath(recordingDir),
+		getRecordingPackageName(recordingId),
+	);
 	return {
 		packageDir,
 		manifestPath: path.join(packageDir, RECORDING_PACKAGE_MANIFEST),

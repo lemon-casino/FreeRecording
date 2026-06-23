@@ -7,35 +7,63 @@ import {
 	getRecordingManifestPathForVideo,
 	getRecordingPackageDirForVideoPath,
 	getRecordingPackagePaths,
+	normalizeRecordingDirectoryBasePath,
 	normalizeRecordingPackageManifest,
 	resolveRecordingOutputPathInDirectory,
 } from "./recordingPackage";
 
 describe("recording package paths", () => {
 	it("builds canonical package paths for a recording id", () => {
+		const recordingDir = path.resolve("/recordings");
 		const paths = getRecordingPackagePaths(
-			"/recordings",
+			recordingDir,
 			new Date(2026, 5, 19, 12, 34, 56, 789).getTime(),
 		);
 
 		expect(paths.packageDir).toBe(
-			path.join("/recordings", "recording-2026-06-19-12-34-56-789.likelysnap"),
+			path.join(recordingDir, "recording-2026-06-19-12-34-56-789.likelysnap"),
 		);
 		expect(paths.screenVideoPath).toBe(
-			path.join("/recordings", "recording-2026-06-19-12-34-56-789.likelysnap", "screen.mp4"),
+			path.join(recordingDir, "recording-2026-06-19-12-34-56-789.likelysnap", "screen.mp4"),
 		);
 		expect(paths.webcamVideoPath).toBe(
-			path.join("/recordings", "recording-2026-06-19-12-34-56-789.likelysnap", "webcam.mp4"),
+			path.join(recordingDir, "recording-2026-06-19-12-34-56-789.likelysnap", "webcam.mp4"),
 		);
 		expect(paths.cursorTelemetryPath).toBe(
-			path.join("/recordings", "recording-2026-06-19-12-34-56-789.likelysnap", "cursor.json"),
+			path.join(recordingDir, "recording-2026-06-19-12-34-56-789.likelysnap", "cursor.json"),
 		);
 		expect(paths.cursorPreviewPath).toBe(
 			path.join(
-				"/recordings",
+				recordingDir,
 				"recording-2026-06-19-12-34-56-789.likelysnap",
 				"cursor-preview.json",
 			),
+		);
+	});
+
+	it("normalizes a package directory back to the recording directory", () => {
+		const baseDir = path.resolve("/recordings");
+		const recordingDir = path.join(baseDir, "recording-2026-06-19-12-34-56-789.likelysnap");
+
+		expect(normalizeRecordingDirectoryBasePath(recordingDir)).toBe(baseDir);
+	});
+
+	it("normalizes paths inside a package back to the package parent directory", () => {
+		const baseDir = path.resolve("/recordings");
+		const nestedDir = path.join(baseDir, "recording-2026-06-19-12-34-56-789.likelysnap", "nested");
+
+		expect(normalizeRecordingDirectoryBasePath(nestedDir)).toBe(baseDir);
+	});
+
+	it("does not nest a new package inside an existing package directory", () => {
+		const baseDir = path.resolve("/recordings");
+		const paths = getRecordingPackagePaths(
+			path.join(baseDir, "recording-2026-06-19-12-34-56-789.likelysnap"),
+			new Date(2026, 5, 19, 12, 35, 0, 123).getTime(),
+		);
+
+		expect(paths.packageDir).toBe(
+			path.join(baseDir, "recording-2026-06-19-12-35-00-123.likelysnap"),
 		);
 	});
 
@@ -69,27 +97,29 @@ describe("recording package paths", () => {
 	});
 
 	it("uses package-local cursor and manifest paths when screen video lives in a package", () => {
-		const screenPath = path.join("/r", "recording-123.likelysnap", "screen.mp4");
+		const recordingDir = path.resolve("/r");
+		const screenPath = path.join(recordingDir, "recording-123.likelysnap", "screen.mp4");
 
 		expect(getRecordingPackageDirForVideoPath(screenPath)).toBe(
-			path.join("/r", "recording-123.likelysnap"),
+			path.join(recordingDir, "recording-123.likelysnap"),
 		);
 		expect(getCursorTelemetryPathForVideo(screenPath)).toBe(
-			path.join("/r", "recording-123.likelysnap", "cursor.json"),
+			path.join(recordingDir, "recording-123.likelysnap", "cursor.json"),
 		);
 		expect(getCursorPreviewPathForVideo(screenPath)).toBe(
-			path.join("/r", "recording-123.likelysnap", "cursor-preview.json"),
+			path.join(recordingDir, "recording-123.likelysnap", "cursor-preview.json"),
 		);
 		expect(getRecordingManifestPathForVideo(screenPath, ".session.json")).toBe(
-			path.join("/r", "recording-123.likelysnap", "manifest.json"),
+			path.join(recordingDir, "recording-123.likelysnap", "manifest.json"),
 		);
 	});
 
 	it("keeps preview sidecars package-local even after the package is moved", () => {
-		const screenPath = path.join("/moved", "recording-123.likelysnap", "screen.mp4");
+		const recordingDir = path.resolve("/moved");
+		const screenPath = path.join(recordingDir, "recording-123.likelysnap", "screen.mp4");
 
 		expect(getCursorPreviewPathForVideo(screenPath)).toBe(
-			path.join("/moved", "recording-123.likelysnap", "cursor-preview.json"),
+			path.join(recordingDir, "recording-123.likelysnap", "cursor-preview.json"),
 		);
 	});
 
@@ -105,7 +135,7 @@ describe("recording package paths", () => {
 	});
 
 	it("round-trips package manifest relative media paths to absolute session paths", () => {
-		const packageDir = path.join("/r", "recording-123.likelysnap");
+		const packageDir = path.join(path.resolve("/r"), "recording-123.likelysnap");
 		const screenVideoPath = path.join(packageDir, "screen.mp4");
 		const webcamVideoPath = path.join(packageDir, "webcam.mp4");
 		const manifest = buildRecordingPackageManifest(
@@ -146,7 +176,7 @@ describe("recording package paths", () => {
 	});
 
 	it("keeps legacy package manifests with webcam.webm loadable", () => {
-		const packageDir = path.join("/r", "recording-123.likelysnap");
+		const packageDir = path.join(path.resolve("/r"), "recording-123.likelysnap");
 		const manifest = {
 			schemaVersion: 1,
 			createdAt: 123,
@@ -169,7 +199,7 @@ describe("recording package paths", () => {
 	});
 
 	it("keeps macOS movie-file webcam sidecars loadable", () => {
-		const packageDir = path.join("/r", "recording-123.likelysnap");
+		const packageDir = path.join(path.resolve("/r"), "recording-123.likelysnap");
 		const manifest = {
 			schemaVersion: 1,
 			createdAt: 123,

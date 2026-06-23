@@ -63,6 +63,7 @@ import {
 	getRecordingPackageDirForVideoPath,
 	getRecordingPackagePaths,
 	isRecordingPackagePath,
+	normalizeRecordingDirectoryBasePath,
 	normalizeRecordingPackageManifest,
 	RECORDING_PACKAGE_LEGACY_WEBCAM_VIDEO,
 	RECORDING_PACKAGE_MAC_WEBCAM_VIDEO,
@@ -439,7 +440,7 @@ function normalizeRecordingDirectoryPath(value: unknown): string | null {
 	}
 
 	const trimmed = value.trim();
-	return trimmed ? path.resolve(trimmed) : null;
+	return trimmed ? normalizeRecordingDirectoryBasePath(trimmed) : null;
 }
 
 async function loadRecordingDirectorySetting(): Promise<string | null> {
@@ -457,10 +458,11 @@ async function loadRecordingDirectorySetting(): Promise<string | null> {
 }
 
 async function saveRecordingDirectorySetting(recordingDirectory: string): Promise<void> {
+	const normalizedRecordingDirectory = normalizeRecordingDirectoryBasePath(recordingDirectory);
 	await fs.mkdir(path.dirname(RECORDING_SETTINGS_FILE), { recursive: true });
 	await fs.writeFile(
 		RECORDING_SETTINGS_FILE,
-		JSON.stringify({ recordingDirectory: path.resolve(recordingDirectory) }, null, 2),
+		JSON.stringify({ recordingDirectory: normalizedRecordingDirectory }, null, 2),
 		"utf-8",
 	);
 }
@@ -2098,6 +2100,39 @@ function waitForNativeWindowsCaptureStop(proc: ChildProcessWithoutNullStreams) {
 	});
 }
 
+function writeNativeWindowsCaptureCommand(
+	proc: ChildProcessWithoutNullStreams,
+	command: "pause" | "resume" | "stop",
+): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (!proc.stdin.writable) {
+			reject(new Error("Native Windows capture command channel is closed."));
+			return;
+		}
+
+		const startedAt = Date.now();
+		const accepted = proc.stdin.write(`${command}\n`, (error?: Error | null) => {
+			if (error) {
+				writeAppLog("error", "[native-wgc] command write failed", {
+					command,
+					error,
+					state: summarizeNativeCaptureState(),
+				});
+				reject(error);
+				return;
+			}
+
+			writeAppLog("info", "[native-wgc] command sent", {
+				command,
+				accepted,
+				flushMs: Date.now() - startedAt,
+				state: summarizeNativeCaptureState(),
+			});
+			resolve();
+		});
+	});
+}
+
 function readNativeWindowsWebcamFormat(output: string) {
 	return readNativeWindowsWebcamFormatFromOutput(output);
 }
@@ -3407,7 +3442,7 @@ export function registerIpcHandlers(
 		}
 
 		try {
-			proc.stdin.write("pause\n");
+			await writeNativeWindowsCaptureCommand(proc, "pause");
 			nativeWindowsIsPaused = true;
 			nativeWindowsPauseStartedAtMs = Date.now();
 			return { success: true };
@@ -3429,7 +3464,7 @@ export function registerIpcHandlers(
 		}
 
 		try {
-			proc.stdin.write("resume\n");
+			await writeNativeWindowsCaptureCommand(proc, "resume");
 			completeNativeWindowsCursorPauseRange();
 			nativeWindowsIsPaused = false;
 			return { success: true };
@@ -3464,7 +3499,7 @@ export function registerIpcHandlers(
 			});
 			completeNativeWindowsCursorPauseRange();
 			const stoppedPathPromise = waitForNativeWindowsCaptureStop(proc);
-			proc.stdin.write("stop\n");
+			await writeNativeWindowsCaptureCommand(proc, "stop");
 			const stoppedPath = await stoppedPathPromise;
 			const screenVideoPath = stoppedPath || preferredPath;
 			if (!screenVideoPath) {
