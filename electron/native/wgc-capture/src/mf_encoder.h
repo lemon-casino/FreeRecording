@@ -49,8 +49,14 @@ public:
     bool finalize();
 
 private:
+    enum class FrameCopyResult {
+        Ok,
+        Skipped,
+        Failed,
+    };
+
     bool ensureStagingTexture(ID3D11Texture2D* texture);
-    bool copyFrameToBuffer(
+    FrameCopyResult copyFrameToBuffer(
         ID3D11Texture2D* texture,
         BYTE* destination,
         DWORD destinationSize,

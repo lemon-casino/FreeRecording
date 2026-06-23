@@ -2,13 +2,16 @@
 
 #include "audio_sample_utils.h"
 
+#include <dxgi.h>
 #include <mfapi.h>
 #include <mferror.h>
 #include <propvarutil.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <iostream>
+#include <thread>
 
 namespace {
 
@@ -218,20 +221,39 @@ bool MFEncoder::ensureStagingTexture(ID3D11Texture2D* texture) {
                      "CreateTexture2D(staging)");
 }
 
-bool MFEncoder::copyFrameToBuffer(
+MFEncoder::FrameCopyResult MFEncoder::copyFrameToBuffer(
     ID3D11Texture2D* texture,
     BYTE* destination,
     DWORD destinationSize,
     const BgraFrameView* webcamFrame) {
     if (!ensureStagingTexture(texture)) {
-        return false;
+        return FrameCopyResult::Failed;
     }
 
     context_->CopyResource(stagingTexture_.Get(), texture);
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (!succeeded(context_->Map(stagingTexture_.Get(), 0, D3D11_MAP_READ, 0, &mapped), "Map")) {
-        return false;
+    HRESULT mapResult = E_FAIL;
+    const auto mapDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+    do {
+        mapResult = context_->Map(
+            stagingTexture_.Get(),
+            0,
+            D3D11_MAP_READ,
+            D3D11_MAP_FLAG_DO_NOT_WAIT,
+            &mapped);
+        if (mapResult == DXGI_ERROR_WAS_STILL_DRAWING) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    } while (mapResult == DXGI_ERROR_WAS_STILL_DRAWING &&
+             std::chrono::steady_clock::now() < mapDeadline);
+
+    if (mapResult == DXGI_ERROR_WAS_STILL_DRAWING) {
+        std::cerr << "WARNING: Skipping WGC frame because GPU readback is still busy" << std::endl;
+        return FrameCopyResult::Skipped;
+    }
+    if (!succeeded(mapResult, "Map")) {
+        return FrameCopyResult::Failed;
     }
 
     const DWORD rowBytes = static_cast<DWORD>(width_ * 4);
@@ -239,7 +261,7 @@ bool MFEncoder::copyFrameToBuffer(
     if (destinationSize < requiredBytes) {
         context_->Unmap(stagingTexture_.Get(), 0);
         std::cerr << "ERROR: Media Foundation buffer is too small" << std::endl;
-        return false;
+        return FrameCopyResult::Failed;
     }
 
     auto* source = static_cast<const BYTE*>(mapped.pData);
@@ -251,7 +273,7 @@ bool MFEncoder::copyFrameToBuffer(
     }
 
     context_->Unmap(stagingTexture_.Get(), 0);
-    return true;
+    return FrameCopyResult::Ok;
 }
 
 bool MFEncoder::copyBgraFrameToBuffer(const BgraFrameView& frame, BYTE* destination, DWORD destinationSize) {
@@ -323,9 +345,12 @@ bool MFEncoder::writeFrame(ID3D11Texture2D* texture, int64_t timestampHns, const
         return false;
     }
 
-    const bool copied = copyFrameToBuffer(texture, data, maxLength, webcamFrame);
+    const FrameCopyResult copied = copyFrameToBuffer(texture, data, maxLength, webcamFrame);
     buffer->Unlock();
-    if (!copied) {
+    if (copied == FrameCopyResult::Skipped) {
+        return true;
+    }
+    if (copied == FrameCopyResult::Failed) {
         return false;
     }
     buffer->SetCurrentLength(frameBytes);
