@@ -830,11 +830,8 @@ int main(int argc, char* argv[]) {
               << ",\"bitrate\":" << bitrate << "}" << std::endl;
     std::cout << "Recording started" << std::endl;
 
-    {
-        std::unique_lock lock(mutex);
-        control.cv.wait(lock, [&] {
-            return control.stopRequested.load();
-        });
+    while (!control.stopRequested.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     std::cerr << "INFO: Native capture shutdown started" << std::endl;
