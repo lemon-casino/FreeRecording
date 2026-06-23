@@ -2103,6 +2103,7 @@ function waitForNativeWindowsCaptureStop(proc: ChildProcessWithoutNullStreams) {
 function writeNativeWindowsCaptureCommand(
 	proc: ChildProcessWithoutNullStreams,
 	command: "pause" | "resume" | "stop",
+	options?: { closeStdin?: boolean },
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		if (!proc.stdin.writable) {
@@ -2128,6 +2129,13 @@ function writeNativeWindowsCaptureCommand(
 				flushMs: Date.now() - startedAt,
 				state: summarizeNativeCaptureState(),
 			});
+			if (options?.closeStdin && proc.stdin.writable) {
+				proc.stdin.end();
+				writeAppLog("info", "[native-wgc] command channel closed after stop", {
+					command,
+					state: summarizeNativeCaptureState(),
+				});
+			}
 			resolve();
 		});
 	});
@@ -3499,7 +3507,7 @@ export function registerIpcHandlers(
 			});
 			completeNativeWindowsCursorPauseRange();
 			const stoppedPathPromise = waitForNativeWindowsCaptureStop(proc);
-			await writeNativeWindowsCaptureCommand(proc, "stop");
+			await writeNativeWindowsCaptureCommand(proc, "stop", { closeStdin: true });
 			const stoppedPath = await stoppedPathPromise;
 			const screenVideoPath = stoppedPath || preferredPath;
 			if (!screenVideoPath) {

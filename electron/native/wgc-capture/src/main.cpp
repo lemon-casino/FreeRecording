@@ -357,7 +357,10 @@ void readCaptureCommands(CaptureControl& control, const std::function<void(bool)
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line == "stop" || line == "q" || line == "quit") {
+            control.setPaused(false);
             control.stopRequested = true;
+            onPauseChanged(false);
+            std::cerr << "INFO: Stop command received" << std::endl;
             control.cv.notify_all();
             return;
         }
@@ -834,14 +837,18 @@ int main(int argc, char* argv[]) {
         });
     }
 
+    std::cerr << "INFO: Native capture shutdown started" << std::endl;
     microphoneCapture.stop();
     loopbackCapture.stop();
     webcamCapture.stop();
     if (audioMixer) {
         audioMixer->stop();
     }
+    std::cerr << "INFO: Native capture inputs stopped" << std::endl;
     stopVideoWriter();
+    std::cerr << "INFO: Native capture video writer stopped" << std::endl;
     session.stop();
+    std::cerr << "INFO: Native capture WGC session stopped" << std::endl;
     {
         std::scoped_lock lock(mutex);
         encoder.finalize();
@@ -849,6 +856,7 @@ int main(int argc, char* argv[]) {
             webcamEncoder.finalize();
         }
     }
+    std::cerr << "INFO: Native capture encoders finalized" << std::endl;
 
     if (stdinThread.joinable()) {
         stdinThread.detach();
