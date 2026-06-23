@@ -353,7 +353,7 @@ export function AppSettingsDialog({
 				</button>
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-y-auto p-4">
+			<div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
 				{loading ? (
 					<div className="flex h-52 items-center justify-center text-white/50">
 						<Loader2 size={18} className="mr-2 animate-spin" />
