@@ -100,7 +100,7 @@ jobs:
         run: npm run build-vite
 
       - name: Package macOS DMG
-        run: npx electron-builder --mac dmg --arm64
+        run: npx electron-builder --mac dmg --arm64 --config.npmRebuild=false
 
       - name: Verify packaged FFmpeg
         run: npm run verify:ffmpeg:mac:arm64
