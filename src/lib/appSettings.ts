@@ -23,6 +23,8 @@ export interface AppSettings {
 	defaultMicrophoneEnabled: boolean;
 	defaultSystemAudioEnabled: boolean;
 	defaultWebcamEnabled: boolean;
+	postRecordingOpenStudio: boolean;
+	postRecordingRevealFolder: boolean;
 }
 
 export const RECORDING_QUALITY_LABELS: Record<RecordingQuality, string> = {

@@ -617,6 +617,25 @@ export function AppSettingsDialog({
 						</section>
 
 						<section className="grid gap-3">
+							<div className="flex items-center gap-2 text-xs font-semibold text-white/82">
+								<Video size={14} className="text-[#F2A8C2]" />
+								录制完成后
+							</div>
+							<ToggleRow
+								label="自动启动 Open Studio"
+								description="录制保存后自动进入编辑器"
+								checked={settings.postRecordingOpenStudio}
+								onChange={(checked) => void savePartial({ postRecordingOpenStudio: checked })}
+							/>
+							<ToggleRow
+								label="自动打开录制文件夹"
+								description="录制保存后在文件管理器中定位视频"
+								checked={settings.postRecordingRevealFolder}
+								onChange={(checked) => void savePartial({ postRecordingRevealFolder: checked })}
+							/>
+						</section>
+
+						<section className="grid gap-3">
 							<div className="flex items-center justify-between gap-3">
 								<div className="flex items-center gap-2 text-xs font-semibold text-white/82">
 									<RefreshCw size={14} className="text-[#F2A8C2]" />

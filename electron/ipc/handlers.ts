@@ -120,6 +120,8 @@ type AppSettings = {
 	defaultMicrophoneEnabled: boolean;
 	defaultSystemAudioEnabled: boolean;
 	defaultWebcamEnabled: boolean;
+	postRecordingOpenStudio: boolean;
+	postRecordingRevealFolder: boolean;
 };
 
 type CursorPreviewFile = {
@@ -263,6 +265,8 @@ async function loadAppSettings(): Promise<AppSettings> {
 		defaultMicrophoneEnabled: normalizeBoolean(raw.defaultMicrophoneEnabled, false),
 		defaultSystemAudioEnabled: normalizeBoolean(raw.defaultSystemAudioEnabled, false),
 		defaultWebcamEnabled: normalizeBoolean(raw.defaultWebcamEnabled, false),
+		postRecordingOpenStudio: normalizeBoolean(raw.postRecordingOpenStudio, true),
+		postRecordingRevealFolder: normalizeBoolean(raw.postRecordingRevealFolder, false),
 	};
 }
 
@@ -405,6 +409,14 @@ async function saveAppSettings(partial: Partial<AppSettings>): Promise<AppSettin
 		defaultWebcamEnabled: normalizeBoolean(
 			partial.defaultWebcamEnabled,
 			current.defaultWebcamEnabled,
+		),
+		postRecordingOpenStudio: normalizeBoolean(
+			partial.postRecordingOpenStudio,
+			current.postRecordingOpenStudio,
+		),
+		postRecordingRevealFolder: normalizeBoolean(
+			partial.postRecordingRevealFolder,
+			current.postRecordingRevealFolder,
 		),
 	};
 
