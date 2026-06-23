@@ -420,6 +420,13 @@ int main(int argc, char* argv[]) {
             std::cerr << "ERROR: Native window capture requires a valid HWND" << std::endl;
             return 1;
         }
+        RECT windowRect{};
+        GetWindowRect(window, &windowRect);
+        std::cerr << "INFO: Native window capture target hwnd=" << reinterpret_cast<uintptr_t>(window)
+                  << " visible=" << (IsWindowVisible(window) ? "true" : "false")
+                  << " iconic=" << (IsIconic(window) ? "true" : "false")
+                  << " rect=" << (windowRect.right - windowRect.left) << "x"
+                  << (windowRect.bottom - windowRect.top) << std::endl;
         if (!session.initialize(window, config.fps, config.captureCursor)) {
             std::cerr << "ERROR: Failed to initialize WGC window session" << std::endl;
             return 1;
@@ -436,6 +443,9 @@ int main(int argc, char* argv[]) {
     int height = session.captureHeight();
     width = (std::max(2, width) / 2) * 2;
     height = (std::max(2, height) / 2) * 2;
+    std::cout << "{\"event\":\"capture-format\",\"schemaVersion\":2,\"sourceType\":\""
+              << jsonEscape(config.sourceType) << "\",\"width\":" << width
+              << ",\"height\":" << height << "}" << std::endl;
 
     const int pixels = width * height;
     const int bitrate = config.bitrate > 0

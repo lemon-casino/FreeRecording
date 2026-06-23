@@ -43,6 +43,36 @@ void setAudioFormat(IMFMediaType* type, UINT32 channels, UINT32 sampleRate, UINT
     type->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, bitsPerSample);
 }
 
+void normalizeBgraForOpaqueEncoding(BYTE* data, DWORD byteCount) {
+    for (DWORD i = 0; i + 3 < byteCount; i += 4) {
+        const BYTE alpha = data[i + 3];
+        if (alpha > 0 && alpha < 255) {
+            data[i] = static_cast<BYTE>(std::min(255u, (static_cast<unsigned>(data[i]) * 255u) / alpha));
+            data[i + 1] = static_cast<BYTE>(std::min(255u, (static_cast<unsigned>(data[i + 1]) * 255u) / alpha));
+            data[i + 2] = static_cast<BYTE>(std::min(255u, (static_cast<unsigned>(data[i + 2]) * 255u) / alpha));
+        }
+        data[i + 3] = 255;
+    }
+}
+
+bool hasVisibleBgraContent(const BYTE* data, DWORD byteCount) {
+    if (!data || byteCount < 4) {
+        return false;
+    }
+
+    uint64_t colorEnergy = 0;
+    DWORD sampledPixels = 0;
+    const DWORD pixelCount = byteCount / 4;
+    const DWORD stride = std::max<DWORD>(1, pixelCount / 4096);
+    for (DWORD pixel = 0; pixel < pixelCount; pixel += stride) {
+        const DWORD i = pixel * 4;
+        colorEnergy += data[i] + data[i + 1] + data[i + 2];
+        sampledPixels += 1;
+    }
+
+    return sampledPixels > 0 && colorEnergy > sampledPixels * 3;
+}
+
 void compositeWebcam(BYTE* destination, int width, int height, const BgraFrameView& webcamFrame) {
     if (!webcamFrame.data || webcamFrame.width <= 0 || webcamFrame.height <= 0 || width <= 0 || height <= 0) {
         return;
@@ -281,6 +311,11 @@ MFEncoder::FrameCopyResult MFEncoder::copyFrameToBuffer(
     if (webcamFrame) {
         compositeWebcam(destination, width_, height_, *webcamFrame);
     }
+    normalizeBgraForOpaqueEncoding(destination, requiredBytes);
+    if (!hasVisibleBgraContent(destination, requiredBytes) && darkFrameWarnings_ < 3) {
+        darkFrameWarnings_ += 1;
+        std::cerr << "WARNING: Encoded WGC frame appears nearly black after readback" << std::endl;
+    }
 
     context_->Unmap(stagingTexture_.Get(), 0);
     return FrameCopyResult::Ok;
@@ -305,6 +340,7 @@ bool MFEncoder::copyBgraFrameToBuffer(const BgraFrameView& frame, BYTE* destinat
             destination[i + 2] = frame.data[i + 2];
             destination[i + 3] = 255;
         }
+        normalizeBgraForOpaqueEncoding(destination, requiredBytes);
         return true;
     }
 
@@ -321,6 +357,7 @@ bool MFEncoder::copyBgraFrameToBuffer(const BgraFrameView& frame, BYTE* destinat
             target[3] = 255;
         }
     }
+    normalizeBgraForOpaqueEncoding(destination, requiredBytes);
 
     return true;
 }

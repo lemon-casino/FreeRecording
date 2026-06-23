@@ -819,6 +819,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				return false;
 			}
 
+			if (selectedSource.id.startsWith("window:")) {
+				return false;
+			}
+
 			const availability = await window.electronAPI.isNativeWindowsCaptureAvailable();
 			if (!availability.success || !availability.available) {
 				if (availability.reason === "unsupported-os") {

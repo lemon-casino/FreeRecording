@@ -77,5 +77,6 @@ private:
     int fps_ = 60;
     int64_t firstTimestampHns_ = -1;
     int64_t lastTimestampHns_ = -1;
+    uint32_t darkFrameWarnings_ = 0;
     bool finalized_ = false;
 };
