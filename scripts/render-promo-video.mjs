@@ -10,7 +10,9 @@ const promoDurations = {
 	"github-15s": 15,
 };
 if (!Object.hasOwn(promoDurations, promoName)) {
-	throw new Error(`Unknown promo "${promoName}". Expected one of: ${Object.keys(promoDurations).join(", ")}`);
+	throw new Error(
+		`Unknown promo "${promoName}". Expected one of: ${Object.keys(promoDurations).join(", ")}`,
+	);
 }
 const promoDir = path.join(root, "promo", promoName);
 const html = path.join(promoDir, "index.html");
@@ -73,7 +75,9 @@ const capture = async (time, outPath) => {
 };
 
 const keyframeTimes =
-	promoName === "github-15s" ? [0.6, 2.6, 4.6, 6.6, 9.4, 12.8, 14.4] : [0.4, 1.4, 2.6, 3.8, 5.8, 7.8, 9.5];
+	promoName === "github-15s"
+		? [0.6, 2.6, 4.6, 6.6, 9.4, 12.8, 14.4]
+		: [0.4, 1.4, 2.6, 3.8, 5.8, 7.8, 9.5];
 const posterTime = promoName === "github-15s" ? 14.4 : 9.5;
 
 for (const time of keyframeTimes) {
@@ -198,14 +202,7 @@ if (Object.values(audioAssets).every((file) => fs.existsSync(file))) {
 const palette = path.join(framesDir, "palette.png");
 execFileSync(
 	"ffmpeg",
-	[
-		"-y",
-		"-i",
-		mp4,
-		"-vf",
-		"fps=15,scale=960:-1:flags=lanczos,palettegen=stats_mode=diff",
-		palette,
-	],
+	["-y", "-i", mp4, "-vf", "fps=15,scale=960:-1:flags=lanczos,palettegen=stats_mode=diff", palette],
 	{ stdio: "inherit" },
 );
 execFileSync(

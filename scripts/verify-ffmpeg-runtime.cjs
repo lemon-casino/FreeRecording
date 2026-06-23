@@ -42,14 +42,7 @@ function inferResourcesDir(platform, arch) {
 		return path.join("release", version, "win-unpacked", "resources");
 	}
 	if (platform === "darwin") {
-		return path.join(
-			"release",
-			version,
-			`mac-${arch}`,
-			"LikelySnap.app",
-			"Contents",
-			"Resources",
-		);
+		return path.join("release", version, `mac-${arch}`, "LikelySnap.app", "Contents", "Resources");
 	}
 	throw new Error(`Cannot infer packaged resources directory for ${platform}-${arch}`);
 }

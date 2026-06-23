@@ -13,5 +13,8 @@ exports.default = async function beforePack(context) {
 		cwd: path.join(__dirname, ".."),
 	});
 
-	prepareFfmpegRuntime(context?.electronPlatformName ?? process.platform, context?.arch ?? process.arch);
+	prepareFfmpegRuntime(
+		context?.electronPlatformName ?? process.platform,
+		context?.arch ?? process.arch,
+	);
 };
