@@ -57,7 +57,7 @@ jobs:
             release/**
           if-no-files-found: ignore
 
-      - name: Create GitHub release
+      - name: Publish GitHub release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,6 +70,13 @@ jobs:
             throw "Windows portable zip was not found under $releaseDir"
           }
 
-          gh release create $env:TAG_NAME $zip.FullName `
-            --title "FreeRecording $($package.version)" `
-            --notes "First FreeRecording release. Windows x64 portable build."
+          $title = "FreeRecording $($package.version)"
+          $notes = "First FreeRecording release. Windows x64 portable build."
+
+          gh release view $env:TAG_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $env:TAG_NAME --title $title --notes $notes
+            gh release upload $env:TAG_NAME $zip.FullName --clobber
+          } else {
+            gh release create $env:TAG_NAME $zip.FullName --title $title --notes $notes
+          }
