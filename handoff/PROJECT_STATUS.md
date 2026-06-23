@@ -1,0 +1,212 @@
+# Current Project Status
+
+## Repository
+
+- Local path: `/Users/macbook/Desktop/LikelySnap/openscreen`
+- GitHub remote: `https://github.com/Likely7/LikelySnpa.git`
+- Checked commit before local handoff docs: `71622a2`
+- Current package version: `1.2.0`
+- Base version: OpenScreen `1.5.0`
+- License: MIT
+- Current product name: `LikelySnap`
+- Current npm package name: `likelysnap`
+- Current Electron appId: `com.likelysnap.app`
+- Latest pushed checkpoint before local NLE editor pass: `80338cd docs: remove public packaging noise`
+- Latest durable app/settings checkpoint: `7d1a3c2 fix: open app settings in standalone window`
+- Public GitHub cleanup checkpoint: removed obsolete release/build workflows and public README platform packaging instructions; internal build scripts remain in `package.json`.
+- Archive before NLE-style editor architecture work: `archive/before-nle-editor-architecture-20260618-000347`
+- Archive before FFmpeg export pipeline work: `archive/before-export-architecture-pivot-20260618-011443`
+- Current main checkpoint after rollback on 2026-06-19: `2458939 docs: note live cursor preview validation`. This is the stable staged-editor-open baseline with package-local `cursor-preview.json`; the later MP4 faststart/webcam sidecar cleanup direction was force-rolled back from GitHub `main`.
+- App settings checkpoints: `eb0f2c4 feat: add app settings center`, `7d1a3c2 fix: open app settings in standalone window`
+- Archive before app settings center work: `archive/before-app-settings-20260617`
+- Previous durable checkpoints: `cb24f07 fix: stabilize auto zoom spans and refresh branding`, `0291a23 fix: make native webcam sidecars long-recording safe`
+- Archive before native webcam sidecar work: `archive/before-native-webcam-sidecar-20260617-131845`
+- App icon source of truth: `icons/source/logo.png`, generated through `npm run generate:icons` into the public favicon, Linux PNG set, macOS `.icns`, and Windows `.ico`.
+
+## Environment Notes
+
+- User platform for this work: macOS.
+- Project declares Node `22.22.1` and npm `10.9.4`.
+- Local machine currently uses Node `24.14.1` and npm `11.11.0`, which emits an engine warning against the declared project toolchain.
+- Full native helper build currently requires full Xcode; this machine has Command Line Tools active.
+
+## Confirmed Code Facts
+
+- macOS native recording writes MP4 with `AVAssetWriter`; it is already a disk-writing path, not renderer-memory-first.
+- macOS native display recording now uses ScreenCaptureKit display mode backing pixels instead of scaled logical display size. On the user's built-in display, this fixes raw `screen.mp4` output from `1710x1112` to `3420x2224`.
+- macOS native H.264 screen recordings now include BT.709 color primaries, transfer function, and YCbCr matrix metadata to avoid washed/gray playback.
+- macOS native recording diagnostics now persist actual `recordingStarted` width, height, FPS, bitrate, requested dimensions, and color metadata into `manifest.json`.
+- macOS native webcam sidecar no longer uses the unstable `AVAssetWriterInputPixelBufferAdaptor` path, and the `AVCaptureMovieFileOutput` attempt was also abandoned after a real package produced a valid-but-short `webcam.mov` that stopped around 11s while the main screen continued to ~69s. The current helper uses `AVCaptureVideoDataOutput` camera frames and writes them directly through `AVAssetWriterInput.append(sampleBuffer)`, matching the main screen writer model more closely while avoiding the PixelBufferAdaptor timing/finalization path.
+- macOS native webcam finalization is still part of the helper stop result instead of a best-effort side task. The helper only includes `webcamPath` when the sidecar has samples, non-zero bytes, a completed writer, and a readable video track; it also emits frame/drop/session diagnostics and the main process records a `webcam-duration-short` warning if the sidecar is significantly shorter than the screen video. Failed webcam artifacts are preserved for inspection instead of deleted.
+- Real macOS retest on 2026-06-21 produced `/Users/macbook/Movies/LikelySnap/recording-2026-06-21-16-07-22-769.likelysnap`: `screen.mp4` is about `665.315s`, `webcam.mov` is about `664.048s`, H.264 1280x720, and user confirmed the editor shows webcam after the manifest/probe fix. The package manifest was repaired locally because an earlier bad build had misclassified the healthy `webcam.mov`.
+- Webcam sidecar validation no longer passes ffprobe-only arguments to the `ffmpeg` executable. `electron/ipc/videoProbe.ts` now parses `ffmpeg -i` input output for video streams, with tests covering MOV/H.264 webcam output. This fixed a bug where a healthy `webcam.mov` was marked `webcam-output-invalid`, preventing `media.webcamVideoPath` from being written and hiding the webcam in the editor.
+- Windows native webcam sidecar now uses the WGC helper's Media Foundation/DirectShow path and writes package-local `webcam.mp4`; renderer webcam recording is no longer used on the native Windows path.
+- Windows support is currently scoped to x64 only. The WGC helper resolver and build scripts target `electron/native/bin/win32-x64`; Windows ARM64 is not a supported packaging target.
+- Windows native webcam sidecars now persist `webcamStartOffsetMs` from the WGC helper's first written webcam-sidecar frame relative to the screen timeline. Editor preview and MP4/GIF export already consume this manifest field, matching the macOS webcam offset path.
+- Cursor telemetry now creates a package-local `cursor.json` file at recording start and refreshes it in throttled snapshots, with final corrected telemetry written at stop. It also writes package-local `cursor-preview.json` as a bounded preview index for editor open. Legacy loose recordings still use `.cursor.json` plus `.cursor-preview.json`.
+- Session manifests are now created at recording start and updated after stop/attach. New packages use `manifest.json`; legacy loose recordings still use `.session.json`.
+- Browser fallback uses `MediaRecorder` and has a streaming-to-disk wrapper, with in-memory allowed only when no file-backed stream is requested.
+- App settings are now persisted in `app-settings.json` under Electron `userData`, with compatibility mirroring of the recording directory to legacy `recording-settings.json`.
+- Recording directory is now user-selectable from both the HUD folder button and the standalone app settings window.
+- Project file default directory and cache directory are now user-selectable from the standalone app settings window.
+- Recording quality defaults are now real OBS-style settings, not placeholder UI. Standard maps to `1080p / 30 FPS / 5 Mbps`, High maps to `source resolution / 60 FPS / 8 Mbps`, Ultra maps to `source resolution / 60 FPS / 15 Mbps`, and Custom unlocks manual resolution/FPS/Mbps controls. Preset cards stay fixed to their preset route so users do not confuse a selected preset with custom overrides.
+- Custom recording bitrate is capped at `60 Mbps` in settings, IPC validation, and native helper bounds.
+- macOS native recording now distinguishes source resolution from explicit target resolution. Source mode keeps ScreenCaptureKit display/window backing pixels; explicit `1080p`, `1440p`, `4K`, or custom modes pass the requested output dimensions to the helper. Bitrate is passed as explicit bps instead of a hidden multiplier.
+- Windows native recording now consumes the configured FPS and explicit bitrate. The WGC encoder still records at the WGC source texture dimensions until a dedicated GPU scaling pass exists, so Windows resolution selection is documented as source-size for now instead of pretending to downscale.
+- Recording default toggles are now real settings: editable cursor, microphone, system audio, and webcam defaults are loaded when the HUD starts.
+- macOS default recording directory is now `~/Movies/LikelySnap`; non-macOS default is `~/Videos/LikelySnap`.
+- Legacy `RECORDINGS_DIR = path.join(app.getPath("userData"), "recordings")` remains trusted for reading old recordings.
+- Project persistence already stores real media paths via `screenVideoPath` and optional `webcamVideoPath`.
+- Project persistence now also stores optional `webcamStartOffsetMs` when a webcam sidecar exists.
+- Cursor telemetry is separate from video bytes and is required for auto zoom and Follow Mouse zoom.
+- Auto zoom suggestions now separate span selection from camera-follow behavior with three per-zoom modes: `Off`, `Smart Follow Mouse`, and `Always Follow Mouse`.
+- Smart Follow Mouse is implemented as the default generated-zoom/global behavior: stable while the cursor remains inside a scale-aware safe area, eased follow only near the visible zoom boundary. Always Follow Mouse remains available but now uses slower damped motion instead of tightly locking to every cursor sample.
+- Auto zoom suggestion duration and candidate selection are rebalanced against upstream OpenScreen and Screen Studio behavior: isolated single clicks no longer trigger zooms by themselves, repeated click/double-click/press/drag/dwell intent matters, click-and-immediately-leave actions are rejected, accepted suggestions are returned in timeline order, long same-area dwell creates a bounded long explanation zoom instead of repeated short jumps, short hover zooms now confirm after a `1000ms` window, nearby zoom suggestions within `1500ms` can merge into one stable span, and dwell detection now uses a small-region model so normal hand jitter inside a tight explanation area still counts as one dwell.
+- Long-dwell auto zoom spans are now anchored to the beginning of the detected dwell plus context padding instead of being centered around the dwell midpoint. This prevents long explanations from appearing to start only after the `8000ms` long-dwell threshold has elapsed.
+- Follow Mouse remains stored internally as `focusMode` for project compatibility, but user-facing UI and docs call it Follow Mouse / 跟随鼠标. Existing `focusMode: auto` projects should continue to open as Always Follow Mouse unless explicitly migrated by user action.
+- macOS native window recordings now use ScreenCaptureKit-reported window capture bounds for editable cursor normalization, avoiding display-bounds offset in Follow Mouse zoom.
+- User retest after this fix reported the Follow Mouse behavior is close enough to continue; treat Follow Mouse zoom as implemented unless a new concrete offset sample appears.
+- Editor settings footer no longer exposes report bug, save diagnostics, or GitHub star buttons. It shows one centered contact line: `抖音小红书：Likely7  反馈问题`.
+- Project files use `.likelysnap` only.
+- New native recordings now write into readable timestamped package directories like `recording-2026-06-19-20-34-56-789.likelysnap/` with `screen.mp4`, optional validated native webcam sidecar (`webcam.mov` on macOS, `webcam.mp4` on Windows), `cursor.json`, `cursor-preview.json`, and `manifest.json`. Browser fallback and legacy packages may still use `webcam.webm`.
+- A real ~32 minute macOS test produced healthy `screen.mp4` but a ~4 GB `webcam.webm`; stop-time WebM duration patch failed with `ERR_FS_FILE_TOO_LARGE`, and the editor could freeze when mounting that sidecar.
+- Long-recording direction is now implemented and documented in `handoff/LONG_RECORDING_NATIVE_WEBCAM_PLAN.md`: native `webcam.mov` sidecars on macOS, native `webcam.mp4` sidecars on Windows, bounded WebM fallback, sidecar degradation in editor, and NLE-style large media handling.
+- Stop/finalize paths no longer whole-file patch WebM sidecars over the 2 GB safe threshold.
+- Windows native stop/finalize no longer reads the main `screen.mp4` into JS memory to repackage a webcam sidecar.
+- Editor open previously skipped webcam sidecars over the 2 GB threshold to protect the main screen video. That size-only rule has now been removed because valid native sidecars can be large; future degradation must be based on codec/readability diagnostics.
+- Trim waveform generation is now lazy and scalable. The waveform is user-visible by default again, but local media is read through bounded 1 MB ranged IPC reads, decoded incrementally with `mediabunny`, and cached as peak JSON under the configured cache directory keyed by source path/size/mtime.
+- The HUD now has a gear-shaped settings button beside the language switch, and the editor top bar has a matching gear beside the language selector. Both open the same standalone app settings BrowserWindow, outside the transparent HUD overlay, for recording location, project location, recording quality, frame rate, default recording toggles, cache location, cache size, and cache clearing.
+- The standalone settings window exists because the earlier HUD-embedded modal conflicted with transparent overlay hit testing and viewport clipping on the launch surface. The current implementation is the durable path: a normal Electron window with real close controls and clickable settings.
+- Package manifests use relative paths and can be reopened after moving the package.
+- Opening a `.likelysnap` package through the video picker/project picker resolves the package session, including webcam path and webcam offset.
+- If `manifest.json` is missing, package open/recovery can rebuild a recoverable manifest from package files.
+- macOS build metadata now registers `.likelysnap` as a document package type.
+- macOS ARM64 1.0.0 DMG was built with `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64 --config.npmRebuild=false` and copied to `/Users/macbook/Desktop/LikelySnap-Mac-arm64-1.0.0-Installer.dmg`. It is ARM64-only, ad-hoc signed, and not notarized.
+- macOS ARM64 1.2.0 DMG is built with `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64 --config.npmRebuild=false` and copied to `/Users/macbook/Desktop/LikelySnap-Mac-arm64-1.2.0-Installer.dmg`. It is ARM64-only, ad-hoc signed, not notarized, and keeps bundled offline auto captions.
+- Packaged macOS screen-recording permission preflight now trusts a real `desktopCapturer.getSources({ types: ["screen", "window"] })` probe before relying on `systemPreferences.getMediaAccessStatus("screen")`. This fixed a packaged-DMG case where System Settings showed permission granted but LikelySnap still prompted for authorization. The validated diagnosis and local cleanup process are recorded in `handoff/MACOS_PERMISSION_TROUBLESHOOTING.md`.
+- Edited MP4 export now uses `FfmpegVideoExporter` from `src/components/video-editor/VideoEditor.tsx` as the primary MP4 path. The renderer still composites each frame, but final H.264/AAC encode, muxing, and output writing are handled by the main-process FFmpeg service.
+- The FFmpeg MP4 path streams RGBA frames over IPC into FFmpeg `stdin`, writes a temp `.mp4`, and renames it to the final export path after FFmpeg exits successfully. The primary MP4 path no longer creates a final full-export Blob before saving.
+- `@ffmpeg-installer/ffmpeg` is now a runtime dependency. `LIKELYSNAP_FFMPEG_PATH` or `FFMPEG_PATH` can override the bundled/system FFmpeg resolution.
+- Windows MP4 export now has a hardware-first FFmpeg policy when the active FFmpeg exposes a matching encoder: `h264_nvenc` on Windows, `h264_videotoolbox` on macOS, then `libx264`/`h264` fallback. Real Windows GPU behavior still needs hardware validation because the actual encoder set depends on the FFmpeg binary available in that build.
+- MP4 export currently uses a fixed 60 FPS target in `src/components/video-editor/VideoEditor.tsx`, which can double frame work for 30 FPS sources and is a likely contributor to slow Windows export until the FFmpeg path becomes source-aware.
+- A real Windows one-hour recording on a high-end RTX 5070 PC opened but stayed non-interactive for more than five minutes while CPU/GPU/memory utilization stayed low. This points to low-efficiency serialized editor preparation work, not insufficient user hardware.
+- New editor architecture direction is documented in `handoff/NLE_EDITOR_ARCHITECTURE_PLAN.md`: instant timeline open, background waveform/cursor/auto-zoom/proxy jobs, package-local cache indexes, and no heavy analysis on first screen.
+- First NLE-style editor-open pass is implemented locally: editor cursor loading now uses preview-level native bridge data backed by `cursor-preview.json` instead of full cursor recording data, the main process caches parsed cursor files, automatic zoom suggestions run in idle time, waveform generation starts in idle time, and editor-open timing logs are emitted.
+- Important clarification: this is not a finished video-proxy implementation. No `proxy-screen.mp4` / `proxy-webcam.mp4` files are generated yet, and editor playback does not switch to proxy media. The implemented work is a staged-open/indexing pass, not the actual proxy-media pass.
+- `cursor-preview.json` is invalidated by the source cursor file's size/mtime and stores package-local source identity instead of absolute paths, so moving a `.likelysnap` package does not force a full cursor parse on the next open.
+- Export still loads full cursor recording data on demand, so the preview downsampling does not reduce final cursor overlay quality.
+- Cursor preview data intentionally omits the full native cursor asset table for speed; cursor rendering now falls back to built-in themed cursor assets so the mouse overlay and mouse settings panel stay visible in editor preview.
+- The editor still loads full `cursor.json` on demand for export and future deep cursor editing, so preview indexing does not remove cursor quality or features from final renders.
+- User tested the current app after the staged editor-open and cursor fallback fixes and reported that the visible functionality has no obvious issue.
+- Public release feedback on 2026-06-22 exposed two launch/first-run bugs. The macOS packaged app could crash when a window-open path touched Electron's `screen` module before `app.ready`; main-window/editor/settings entry points are now ready-gated before creating windows. Windows first-run users could see the record button disabled because the HUD displayed `Screen` while no real `selectedSource` existed; non-macOS startup now prepares a default screen source, the HUD syncs that source, and the record button is no longer locked behind a manual source-picker step.
+- Windows portable packaging now has `scripts/verify-windows-portable.cjs`, and `npm run build:win:portable` runs it after FFmpeg verification. The script parses ZIP contents with Node directly, so Windows build machines do not need Unix `unzip`. It checks the release zip for `LikelySnap.exe`, `resources/electron/native/bin/win32-x64/wgc-capture.exe`, `cursor-sampler.exe`, and `resources/electron/ffmpeg/win32-x64/ffmpeg.exe`. The uploaded `LikelySnap-Win-x64-1.1.0-r6.zip` was inspected and contains those files, so the reported gray record button is not explained by missing WGC/FFmpeg runtime files.
+- Public-release hardening pass on 2026-06-22 added commit-level fixes beyond the initial launch patch:
+  - `useScreenRecorder` now resolves the default screen source before countdown as well as before capture, so a clean Windows profile can click Record immediately after launch without hitting a stale "select source" alert.
+  - The HUD record icon no longer appears dim/disabled while the default source is being prepared.
+  - macOS Screen Recording access now requires a real `desktopCapturer.getSources()` probe. If System Settings says permission is granted but the current process still cannot enumerate capturable sources, the app returns `restart-required` and tells the user to quit/reopen instead of opening an empty picker.
+  - Because the GitHub build is ad-hoc signed and has no stable Developer ID team identity, packaged macOS builds now run a minimal TCC reset once per signed app build on first launch. The reset key includes the app version plus the packaged executable `CDHash` when available, so same-version hotfix DMGs still clear stale LikelySnap/OpenScreen Screen Recording, Microphone, Camera, and Accessibility grants before macOS asks again, without deleting recordings/settings and without resetting every launch.
+  - Cache cleanup now targets a LikelySnap-owned `managed-cache` subdirectory under the user-selected cache container. Clearing cache no longer recursively deletes arbitrary files if the user accidentally picked a recording/project/home directory.
+  - Editor open no longer drops valid webcam sidecars solely because they exceed `2 GB`; large native `webcam.mov` / `webcam.mp4` sidecars remain available to preview/export.
+  - MP4/GIF webcam export now decodes webcam sidecars on their original local timeline and samples them by `screenSourceTimestampMs - webcamStartOffsetMs`, matching preview behavior across trims and speed regions.
+  - Packaged builds now use the explicit `resources/electron/ffmpeg` runtime only; `@ffmpeg-installer` is development fallback only. Windows portable verification now rejects duplicate installer FFmpeg binaries and non-target `onnxruntime-node` native binaries.
+
+## Current Risk Summary
+
+- Disk-streamed renderer recordings now fail fast if the main-process stream cannot open/write; they no longer silently fall back to unbounded memory for file-backed recordings.
+- The user can choose a recording directory from the HUD before recording.
+- macOS source audio/video sync is instrumented in the native helper and persisted to the session manifest.
+- macOS native recordings with webcam now persist a webcam start offset and apply it in editor preview plus MP4/GIF export.
+- New package recording has passed type, targeted unit tests, and Swift helper typecheck/build verification; it still needs real macOS recording validation on the user's machine.
+- Export audio/video sync diagnostics have not yet been instrumented or proven.
+- Cursor telemetry is live-written, and package open can recover missing manifests; interrupted-session UX still needs real-world validation.
+- Follow Mouse zoom has targeted automated coverage and is now being refined for product feel: upstream behavior was confirmed to mix tight zoom-in tracking with smoother full-zoom tracking, so LikelySnap uses stable fixed-position auto zoom by default plus explicit per-zoom Follow Mouse.
+- Current highest remaining long-recording risk is multi-hour validation and editor/export scaling edges, not recording package write-out. Main screen MP4 can remain large but referenced on disk; webcam sidecars are now native files for native capture (`webcam.mov` on macOS, `webcam.mp4` on Windows). Oversized legacy WebM sidecars are no longer hidden by a blanket 2 GB editor-open rule, so unhealthy sidecars must be detected by codec/readability diagnostics instead of file size alone.
+- MP4 export has moved to the FFmpeg temp-file/streaming path, so the old final Blob save is no longer the primary risk. Remaining export risks are real multi-hour regression, FFmpeg encoder availability per platform/build, fixed 60 FPS work amplification, and the source decoder still loading local files through WebDemuxer for export metadata/decode.
+- The previous editor-load stall from waveform generation has been addressed architecturally with ranged reads and cache reuse; waveform display is default-on again. The known ~17 minute package and subsequent user testing reported the current editor behavior as acceptable after the staged open pass.
+- App settings are implemented and verified at the type/build level, but still need an end-to-end product retest from both entry points: launch HUD gear and editor top-bar gear.
+- Windows native webcam code is implemented and now has a persisted sidecar timeline offset, but it is still not truth-tested on Windows hardware from this macOS machine.
+- The earlier macOS `webcam.mp4` zero-byte / `.sb-*` failure had two parts: the native stop event could race ahead of webcam finalization, and the PixelBufferAdaptor webcam writer could fail mid-recording. A later user retest on 2026-06-21 showed the PixelBufferAdaptor replacement was still unstable: several packages had `webcam-writer-failed`, `AVFoundationErrorDomain -11800`, underlying `NSOSStatusErrorDomain -16364`, and `webcam.mp4` files with missing `moov atom`. The subsequent `AVCaptureMovieFileOutput` attempt produced a readable but truncated `webcam.mov` in `/Users/macbook/Movies/LikelySnap/recording-2026-06-21-15-39-20-754.likelysnap` (screen ~69.08s, webcam ~11.07s), so it is no longer the active path either.
+- Windows x64 packaging still depends on the native WGC helper binaries being built on Windows. Public GitHub release/build automation was removed until the project has a clean LikelySnap-owned release pipeline.
+- Windows export performance is now on the FFmpeg path, but still needs real Windows x64 validation with Task Manager/video encode metrics and app-side diagnostics showing the selected encoder.
+- Windows one-hour editor-open freeze has a concrete code-level fix in place for the largest cursor bottleneck: editor open now reads `cursor-preview.json` instead of parsing/transferring full `cursor.json`. This still needs the user's Windows package retest.
+- Repeated attempts to patch isolated editor-open bottlenecks did not produce reliable Windows one-hour behavior. Treat true proxy/media-cache work (`cache/media-info.json`, thumbnails, proxy MP4s, background job manager, and proxy playback selection) as the next serious direction instead of another narrow open-time patch.
+- The Windows layout panel is expected to be disabled when the package has no webcam sidecar. Do not treat it as a broken Windows layout feature unless webcam was recorded and the manifest/session still lacks `webcamVideoPath`.
+- Current P0 is to validate and continue the editor-open/export architecture plus the new OBS-style recording controls. The latest editor-open code pass removes the largest known first-screen cursor/waveform/auto-zoom blockers and MP4 final-Blob export risk, but package-local media info, chunked/append cursor storage, preview proxies, source-aware export FPS, export diagnostics, and Windows GPU scaling for recording resolution are still open.
+- Deep review on 2026-06-22 found several release-grade risks that remain intentionally open:
+  - macOS public DMGs are still ad-hoc signed and not notarized. Browser-downloaded DMGs can be blocked by Gatekeeper until a Developer ID signing/notarization/stapling pipeline exists.
+  - macOS release is currently ARM64-only by design/user request. Intel Mac users cannot run it unless a universal or x64 build and matching helper/FFmpeg resources are produced.
+  - The app advertises older macOS compatibility than the ScreenCaptureKit helper can truly support. If supporting macOS 12 is not a goal, set `minimumSystemVersion` to macOS 13 and document it.
+  - Windows WGC/cursor helpers may require MSVC runtime DLLs on clean machines unless they are built with static MSVC runtime or the runtime DLLs are bundled and verified.
+  - Local export/caption decode still has whole-file `readBinaryFile` / WebDemuxer paths. The primary MP4 output writing is FFmpeg streaming, but source decode is not yet true NLE-style ranged/native streaming.
+  - Saved project files still reference media by absolute paths. Moving a saved project to another machine can require a future relink/copy-relative-assets workflow.
+
+## Latest Verification
+
+- `npm run generate:icons -- /Users/macbook/Downloads/logo.png` passes and regenerates all app icon assets from the stored source logo.
+- `npm test -- electron/ipc/recordingPackage.test.ts src/components/video-editor/timeline/zoomSuggestionUtils.test.ts src/components/video-editor/videoPlayback/cursorFollowUtils.test.ts src/components/video-editor/videoPlayback/zoomRegionUtils.test.ts` passes with 16 tests after auto zoom span and Follow Mouse refinements.
+- `npm run lint` passes.
+- `./node_modules/.bin/tsc --noEmit` passes.
+- `npm run build-vite` passes after the ranged/cached waveform refactor.
+- `npm test -- src/components/video-editor/timeline/zoomSuggestionUtils.test.ts src/components/video-editor/videoPlayback/zoomRegionUtils.test.ts` passes after the ranged/cached waveform refactor.
+- `npx tsc --noEmit` passes after the app settings center work.
+- `npm test -- src/lib/userPreferences.test.ts src/components/video-editor/editorDefaults.test.ts` passes after the app settings center work.
+- `npm run build-vite` passes after the app settings center work.
+- `npx tsc --noEmit` passes after moving app settings into a standalone Electron window.
+- `npm test -- src/lib/userPreferences.test.ts src/components/video-editor/editorDefaults.test.ts` passes after moving app settings into a standalone Electron window.
+- `npm run build-vite` passes after moving app settings into a standalone Electron window.
+- `npx tsc --noEmit` passes after the Windows webcam sidecar offset fix.
+- `npm test -- src/lib/nativeWindowsRecording.test.ts electron/ipc/recordingPackage.test.ts src/components/video-editor/projectPersistence.test.ts` passes after the Windows webcam sidecar offset fix.
+- `npx biome check electron/ipc/handlers.ts src/lib/nativeWindowsRecording.ts src/lib/nativeWindowsRecording.test.ts scripts/build-windows-wgc-helper.mjs package.json` passes after the Windows x64 packaging guard.
+- `node scripts/build-windows-wgc-helper.mjs` now correctly fails on non-Windows when `win32-x64` helper binaries are missing, preventing a broken Windows package from being produced.
+- `npx tsc` passes after setting the app/package version to `1.0.0`.
+- `npx vite build` passes for the 1.0.0 macOS ARM64 DMG build.
+- `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64 --config.npmRebuild=false` produced `release/1.0.0/LikelySnap-Mac-arm64-1.0.0-Installer.dmg`.
+- `lipo -archs release/1.0.0/mac-arm64/LikelySnap.app/Contents/MacOS/LikelySnap` returns `arm64`.
+- `Info.plist` in the built app reports `CFBundleShortVersionString` and `CFBundleVersion` as `1.0.0`.
+- Built app resources include the `darwin-arm64` cursor and ScreenCaptureKit helper binaries.
+- `npx tsc --noEmit` passes after the first NLE editor-open architecture pass.
+- `npm test -- src/components/video-editor/timeline/zoomSuggestionUtils.test.ts src/components/video-editor/videoPlayback/zoomRegionUtils.test.ts src/lib/cursor/nativeCursor.test.ts src/lib/cursor/cursorPathSmoothing.test.ts` passes after the first NLE editor-open architecture pass.
+- `npm run build-vite` passes after the first NLE editor-open architecture pass.
+- User manually tested the post-optimization app and reported the main functionality looked OK before this documentation/archive checkpoint.
+- `swiftc -parse-as-library -typecheck electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift` passes after the macOS raw recording quality fix with existing deprecation warnings only.
+- `swiftc -parse-as-library electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift -o electron/native/screencapturekit/build/openscreen-screencapturekit-helper` passes and refreshes the dev helper after the macOS raw recording quality fix.
+- `npx tsc --noEmit` passes after the macOS raw recording quality fix.
+- `npx biome check electron/ipc/handlers.ts electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift` passes after the macOS raw recording quality fix.
+- `./node_modules/.bin/tsc --noEmit` passes after the Smart Follow Mouse / Auto Zoom intent-scoring implementation.
+- `npm test -- src/components/video-editor/timeline/zoomSuggestionUtils.test.ts src/components/video-editor/videoPlayback/cursorFollowUtils.test.ts src/components/video-editor/videoPlayback/zoomRegionUtils.test.ts src/components/video-editor/projectPersistence.test.ts src/components/video-editor/editorDefaults.test.ts` passes with 37 tests after the Smart Follow Mouse / Auto Zoom intent-scoring implementation.
+- `npx biome check ...` passes on the touched editor/follow/i18n files after the Smart Follow Mouse / Auto Zoom intent-scoring implementation.
+- `npm run build-vite` passes after the Smart Follow Mouse / Auto Zoom intent-scoring implementation.
+- Follow-up Auto Zoom selector verification after removing isolated single-click triggers and adding long explanation dwell:
+  - `npm test -- src/components/video-editor/timeline/zoomSuggestionUtils.test.ts` passes with 11 tests.
+  - `npm test -- src/components/video-editor/timeline/zoomSuggestionUtils.test.ts src/components/video-editor/videoPlayback/cursorFollowUtils.test.ts src/components/video-editor/videoPlayback/zoomRegionUtils.test.ts src/components/video-editor/projectPersistence.test.ts src/components/video-editor/editorDefaults.test.ts` passes with 41 tests.
+  - `./node_modules/.bin/tsc --noEmit --pretty false` passes.
+  - `npx biome check src/components/video-editor/timeline/zoomSuggestionUtils.ts src/components/video-editor/timeline/zoomSuggestionUtils.test.ts` passes.
+  - `npm run build-vite` passes.
+- Direct helper validation on the user's built-in Retina display: before the Retina fix, raw `screen.mp4` was `1710x1112`; after the fix, raw source-mode `screen.mp4` is `3420x2224` with BT.709 metadata. After the OBS-style settings work, direct helper validation confirmed source recording accepts explicit `8,000,000` bps, while explicit 1080p records `1920x1080 @ 30fps` with requested `5,000,000` bps. High is now defined as source resolution / `60 FPS` / `8 Mbps`.
+- `npx tsc --noEmit` passes after the OBS-style recording settings work.
+- `npx biome check src/lib/appSettings.ts src/hooks/useScreenRecorder.ts src/components/launch/AppSettingsDialog.tsx src/lib/nativeMacRecording.ts src/lib/nativeWindowsRecording.ts electron/ipc/handlers.ts` passes after the OBS-style recording settings work.
+- `swiftc -parse-as-library -typecheck electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift` passes after the OBS-style recording settings work with existing deprecation warnings only.
+- `swiftc -parse-as-library electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift -o electron/native/screencapturekit/build/openscreen-screencapturekit-helper` passes and refreshes the local dev helper after the OBS-style recording settings work.
+- `swiftc -O -parse-as-library -framework AVFoundation -framework CoreGraphics -framework CoreMedia -framework Foundation -framework ScreenCaptureKit electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift -o electron/native/screencapturekit/build/openscreen-screencapturekit-helper` passes and refreshes the local dev helper after the macOS native webcam finalize fix. Existing macOS SDK deprecation warnings remain.
+- The previous PixelBufferAdaptor and MovieFileOutput validations are historical only. PixelBufferAdaptor produced one valid short `webcam.mp4` but later real recordings repeatedly failed with unfinalized MP4 files missing `moov atom`; MovieFileOutput then produced a valid but truncated `webcam.mov`. The current path is direct camera sample-buffer appends into `AVAssetWriter`.
+- `npx tsc --noEmit --pretty false` passes after the direct sample-buffer macOS webcam change.
+- `npm test -- electron/ipc/videoProbe.test.ts electron/ipc/recordingPackage.test.ts src/lib/nativeMacRecording.test.ts src/hooks/useAudioPeaks.test.ts electron/native-bridge/services/ffmpegService.test.ts` passes after the direct sample-buffer macOS webcam change and the ffmpeg input-probe fix.
+- `swiftc -parse-as-library -typecheck electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift` passes after the direct sample-buffer macOS webcam change with existing ScreenCaptureKit/AVAssetWriter deprecation warnings only.
+- `swiftc -O -parse-as-library electron/native/screencapturekit/Sources/OpenScreenScreenCaptureKitHelper/main.swift -o electron/native/screencapturekit/build/openscreen-screencapturekit-helper` passes after the direct sample-buffer macOS webcam change, and the resulting arm64 helper was copied to `electron/native/bin/darwin-arm64/openscreen-screencapturekit-helper` for the dev/package lookup path.
+- `npx tsc --noEmit` passes after the macOS native webcam finalize fix.
+- `npm test -- electron/ipc/recordingPackage.test.ts electron/ipc/recordingStream.test.ts src/lib/nativeMacRecording.test.ts src/lib/nativeWindowsRecording.test.ts` passes after the macOS native webcam finalize fix.
+- `npm run build-vite` passes after the macOS native webcam finalize fix.
+- Auto Zoom dwell-region refinement verification:
+  - `npm test -- src/components/video-editor/timeline/zoomSuggestionUtils.test.ts` passes with 14 tests.
+  - `npm test -- src/components/video-editor/timeline/zoomSuggestionUtils.test.ts src/components/video-editor/videoPlayback/cursorFollowUtils.test.ts src/components/video-editor/videoPlayback/zoomRegionUtils.test.ts` passes with 20 tests.
+  - `npx tsc --noEmit` passes.
+  - `npm run build-vite` passes.
+- `npx tsc --noEmit` passes after the package-local `cursor-preview.json` editor-open fix.
+- `npx vitest run electron/ipc/recordingPackage.test.ts src/lib/cursor/nativeCursor.test.ts src/components/video-editor/timeline/zoomSuggestionUtils.test.ts` passes after the package-local `cursor-preview.json` editor-open fix. The run still prints the known jsdom `HTMLCanvasElement.getContext()` warning, but all 23 tests pass.
+- Manual macOS reopen test after this fix hit `[editor-open] cursor preview cache hit` in 13ms for `cursor-preview.json`, confirming the preview index path is live on the current app.
+- Packaged macOS permission validation after commit `afcd85c`: user confirmed the freshly installed DMG works after clearing stale local LikelySnap/OpenScreen installs, userData, TCC entries, and LaunchServices registrations. Treat future "permission granted but app still asks" reports as a bundle identity / TCC / LaunchServices investigation first, using `handoff/MACOS_PERMISSION_TROUBLESHOOTING.md`.
+- Public-release hardening verification on 2026-06-22:
+  - `npx tsc --noEmit --pretty false` passes.
+  - `npm test -- electron/ipc/screenAccess.test.ts src/components/launch/openSourceSelectorFlow.test.ts electron/ipc/recordingPackage.test.ts src/lib/exporter/timestampedVideoFrameQueue.test.ts electron/native-bridge/services/ffmpegService.test.ts src/lib/nativeWindowsRecording.test.ts` passes with 23 tests across 6 files.
+  - `npx biome check electron-builder.json5 electron/ffmpeg/ffmpegResolver.ts electron/ipc/handlers.ts electron/ipc/screenAccess.ts electron/ipc/screenAccess.test.ts scripts/verify-windows-portable.cjs src/components/launch/LaunchWindow.tsx src/components/video-editor/VideoEditor.tsx src/lib/exporter/ffmpegVideoExporter.ts src/lib/exporter/gifExporter.ts src/lib/exporter/videoExporter.ts CHANGELOG.md handoff/PROJECT_STATUS.md handoff/REMAINING_ISSUES_AND_TODOS.md handoff/CURRENT_GOAL.md` passes.
+  - A synthetic Windows portable ZIP containing `LikelySnap.exe`, `wgc-capture.exe`, `cursor-sampler.exe`, and bundled `ffmpeg.exe` passes `node scripts/verify-windows-portable.cjs <zip>`, proving the verifier works without external `unzip`.
