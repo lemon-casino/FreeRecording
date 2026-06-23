@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +22,7 @@ function findVcVarsAll() {
 
 	const roots = [
 		process.env.VSINSTALLDIR,
+		findVisualStudioInstallDirWithVswhere(),
 		"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community",
 		"C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional",
 		"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise",
@@ -37,6 +38,34 @@ function findVcVarsAll() {
 	}
 
 	return null;
+}
+
+function findVisualStudioInstallDirWithVswhere() {
+	const vswhere = path.join(
+		process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+		"Microsoft Visual Studio",
+		"Installer",
+		"vswhere.exe",
+	);
+	if (!fs.existsSync(vswhere)) {
+		return null;
+	}
+
+	const output = spawnSync(vswhere, [
+		"-latest",
+		"-products",
+		"*",
+		"-requires",
+		"Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+		"-property",
+		"installationPath",
+	]);
+	if (output.status !== 0) {
+		return null;
+	}
+
+	const installDir = output.stdout.toString("utf8").trim();
+	return installDir && fs.existsSync(installDir) ? installDir : null;
 }
 
 function findWindowsSdkUmLibDir() {
