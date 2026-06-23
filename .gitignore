@@ -65,5 +65,11 @@ result-*
 
 **/*.import
 
+# Project source named "lib" must be tracked even if a developer has a global
+# ignore rule for generic build-output lib/ folders.
+!/src/lib/
+!/src/lib/**
+!/electron/native/wgc-capture/CMakeLists.txt
+
 # Auto-caption model + ORT wasm — regenerated at build by scripts/fetch-caption-model.mjs
 /caption-assets/
