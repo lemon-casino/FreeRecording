@@ -36,8 +36,11 @@ jobs:
       - name: Build renderer and Electron entrypoints
         run: npm run build-vite
 
-      - name: Package Windows installer and portable zip
-        run: npx electron-builder --win nsis zip --x64 --config.npmRebuild=false
+      - name: Package Windows portable zip
+        run: npx electron-builder --win zip --x64 --config.npmRebuild=false
+
+      - name: Package Windows installer
+        run: npx electron-builder --win nsis --x64 --config.npmRebuild=false
 
       - name: Verify packaged FFmpeg
         run: npm run verify:ffmpeg:win
@@ -99,7 +102,11 @@ jobs:
       - name: Build renderer and Electron entrypoints
         run: npm run build-vite
 
+      - name: Package macOS app zip
+        run: npx electron-builder --mac zip --arm64 --config.npmRebuild=false
+
       - name: Package macOS DMG
+        continue-on-error: true
         run: npx electron-builder --mac dmg --arm64 --config.npmRebuild=false
 
       - name: Verify packaged FFmpeg
@@ -109,7 +116,9 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: macos-release
-          path: release/**/*.dmg
+          path: |
+            release/**/*.zip
+            release/**/*.dmg
           if-no-files-found: error
 
       - name: Upload failed build diagnostics
@@ -155,7 +164,7 @@ jobs:
           fi
 
           title="FreeRecording ${version}"
-          notes="First FreeRecording release. Includes Windows x64 installer, Windows x64 portable, and macOS arm64 DMG builds."
+          notes="First FreeRecording release. Includes Windows x64 installer, Windows x64 portable, macOS arm64 zip, and macOS arm64 DMG when available."
 
           if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
             gh release edit "${TAG_NAME}" --title "${title}" --notes "${notes}"
