@@ -12,6 +12,8 @@ jobs:
   windows-portable:
     name: Windows Portable
     runs-on: windows-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -37,6 +39,8 @@ jobs:
         run: npm run build-vite
 
       - name: Package Windows installer and portable zip
+        env:
+          DEBUG: electron-builder
         run: npx electron-builder --win nsis zip --x64 --config.npmRebuild=false
 
       - name: Verify packaged FFmpeg
@@ -81,7 +85,7 @@ jobs:
 
   macos-arm64:
     name: macOS ARM64
-    runs-on: macos-latest
+    runs-on: macos-15
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       OPENSCREEN_MAC_HELPER_ARCHS: arm64
@@ -100,6 +104,8 @@ jobs:
         run: npm run build-vite
 
       - name: Package macOS DMG
+        env:
+          DEBUG: electron-builder,electron-osx-sign,dmg-builder
         run: npx electron-builder --mac dmg --arm64 --config.npmRebuild=false
 
       - name: Verify packaged FFmpeg
