@@ -117,7 +117,17 @@ bool MFEncoder::initialize(
     setFrameRate(outputType.Get(), static_cast<UINT32>(fps_));
     setPixelAspectRatio(outputType.Get());
 
-    if (!succeeded(MFCreateSinkWriterFromURL(outputPath.c_str(), nullptr, nullptr, &sinkWriter_),
+    Microsoft::WRL::ComPtr<IMFAttributes> sinkWriterAttributes;
+    if (!succeeded(MFCreateAttributes(&sinkWriterAttributes, 1), "MFCreateAttributes(sink writer)")) {
+        return false;
+    }
+    sinkWriterAttributes->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING, TRUE);
+
+    if (!succeeded(MFCreateSinkWriterFromURL(
+                       outputPath.c_str(),
+                       nullptr,
+                       sinkWriterAttributes.Get(),
+                       &sinkWriter_),
                    "MFCreateSinkWriterFromURL")) {
         return false;
     }

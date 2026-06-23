@@ -634,6 +634,9 @@ int main(int argc, char* argv[]) {
                     frameTimestampHns =
                         lastEncodedVideoTimestampHns + static_cast<int64_t>(10'000'000ULL / config.fps);
                 }
+                if (control.stopRequested || encodeFailed) {
+                    break;
+                }
                 if (writeSeparateWebcam && webcamFrame.data &&
                     latestWebcamSequence != lastWrittenWebcamSequence) {
                     if (firstWebcamTimelineTimestampHns < 0) {
