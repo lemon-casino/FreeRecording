@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-portable:
+    name: Windows Portable
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:win:portable
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $package = Get-Content "package.json" | ConvertFrom-Json
+          $releaseDir = Join-Path "release" $package.version
+          $zip = Get-ChildItem -Path $releaseDir -Filter "*.zip" | Select-Object -First 1
+          if (-not $zip) {
+            throw "Windows portable zip was not found under $releaseDir"
+          }
+
+          gh release create $env:TAG_NAME $zip.FullName `
+            --title "FreeRecording $($package.version)" `
+            --notes "First FreeRecording release. Windows x64 portable build."
