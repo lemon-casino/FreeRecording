@@ -111,7 +111,7 @@
       "nsis"
     ],
     "icon": "icons/icons/win/icon.ico",
-    "signAndEditExecutable": false,
+    "signExts": ["!.exe"],
     "signtoolOptions": {
       "sign": null
     },
