@@ -47,6 +47,7 @@ target_link_libraries(wgc-capture PRIVATE
   mfreadwrite
   mfuuid
   runtimeobject
+  strmiids
   windowsapp
 )
 

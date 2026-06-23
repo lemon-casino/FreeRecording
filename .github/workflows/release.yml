@@ -18,6 +18,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - run: npm ci
 
