@@ -591,6 +591,14 @@ int main(int argc, char* argv[]) {
         int64_t lastEncodedVideoTimestampHns = -1;
 
         while (!control.stopRequested && !encodeFailed) {
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> frameTexture;
+            BgraFrameView webcamFrame{};
+            std::vector<BYTE> webcamFrameData;
+            int64_t frameTimestampHns = 0;
+            bool hasFrameTexture = false;
+            bool shouldWriteWebcamFrame = false;
+            uint64_t frameWebcamSequence = 0;
+
             {
                 std::unique_lock lock(mutex);
                 control.cv.wait(lock, [&] {
@@ -613,11 +621,15 @@ int main(int argc, char* argv[]) {
                         hasVisibleWebcamFrame = true;
                     }
                 }
-                const BgraFrameView webcamFrame{
-                    hasVisibleWebcamFrame && !latestWebcamFrame.empty() ? latestWebcamFrame.data() : nullptr,
-                    latestWebcamWidth,
-                    latestWebcamHeight,
-                };
+                if (hasVisibleWebcamFrame && !latestWebcamFrame.empty()) {
+                    webcamFrameData = latestWebcamFrame;
+                    webcamFrame = {
+                        webcamFrameData.data(),
+                        latestWebcamWidth,
+                        latestWebcamHeight,
+                    };
+                    frameWebcamSequence = latestWebcamSequence;
+                }
                 const int64_t syntheticTimestampHns =
                     static_cast<int64_t>((frameIndex * 10'000'000ULL) / config.fps);
                 const int64_t sourceTimestampHns =
@@ -637,34 +649,45 @@ int main(int argc, char* argv[]) {
                 if (control.stopRequested || encodeFailed) {
                     break;
                 }
-                if (writeSeparateWebcam && webcamFrame.data &&
-                    latestWebcamSequence != lastWrittenWebcamSequence) {
-                    if (firstWebcamTimelineTimestampHns < 0) {
-                        firstWebcamTimelineTimestampHns = frameTimestampHns;
-                    }
-                    const int64_t webcamTimestampHns = static_cast<int64_t>(
-                        (webcamOutputFrameIndex * 10'000'000ULL) / std::max(1, webcamCapture.fps()));
-                    if (!webcamEncoder.writeBgraFrame(webcamFrame, webcamTimestampHns)) {
-                        encodeFailed = true;
-                        control.stopRequested = true;
-                        control.cv.notify_all();
-                        return;
-                    }
-                    lastWrittenWebcamSequence = latestWebcamSequence;
-                    webcamOutputFrameIndex += 1;
+                frameTexture = latestFrameTexture;
+                hasFrameTexture = static_cast<bool>(frameTexture);
+                shouldWriteWebcamFrame =
+                    writeSeparateWebcam && webcamFrame.data && frameWebcamSequence != lastWrittenWebcamSequence;
+            }
+
+            if (control.stopRequested || encodeFailed) {
+                break;
+            }
+
+            if (shouldWriteWebcamFrame) {
+                if (firstWebcamTimelineTimestampHns < 0) {
+                    firstWebcamTimelineTimestampHns = frameTimestampHns;
                 }
-                if (latestFrameTexture && !encoder.writeFrame(
-                        latestFrameTexture.Get(),
-                        frameTimestampHns,
-                        !writeSeparateWebcam && webcamFrame.data ? &webcamFrame : nullptr)) {
+                const int64_t webcamTimestampHns = static_cast<int64_t>(
+                    (webcamOutputFrameIndex * 10'000'000ULL) / std::max(1, webcamCapture.fps()));
+                if (!webcamEncoder.writeBgraFrame(webcamFrame, webcamTimestampHns)) {
                     encodeFailed = true;
                     control.stopRequested = true;
                     control.cv.notify_all();
                     return;
                 }
-                if (latestFrameTexture) {
-                    lastEncodedVideoTimestampHns = frameTimestampHns;
-                }
+                lastWrittenWebcamSequence = frameWebcamSequence;
+                webcamOutputFrameIndex += 1;
+            }
+            if (control.stopRequested || encodeFailed) {
+                break;
+            }
+            if (hasFrameTexture && !encoder.writeFrame(
+                    frameTexture.Get(),
+                    frameTimestampHns,
+                    !writeSeparateWebcam && webcamFrame.data ? &webcamFrame : nullptr)) {
+                encodeFailed = true;
+                control.stopRequested = true;
+                control.cv.notify_all();
+                return;
+            }
+            if (hasFrameTexture) {
+                lastEncodedVideoTimestampHns = frameTimestampHns;
             }
 
             frameIndex += 1;
@@ -838,6 +861,8 @@ int main(int argc, char* argv[]) {
     }
 
     std::cerr << "INFO: Native capture shutdown started" << std::endl;
+    session.stop();
+    std::cerr << "INFO: Native capture WGC session stopped" << std::endl;
     microphoneCapture.stop();
     loopbackCapture.stop();
     webcamCapture.stop();
@@ -847,8 +872,6 @@ int main(int argc, char* argv[]) {
     std::cerr << "INFO: Native capture inputs stopped" << std::endl;
     stopVideoWriter();
     std::cerr << "INFO: Native capture video writer stopped" << std::endl;
-    session.stop();
-    std::cerr << "INFO: Native capture WGC session stopped" << std::endl;
     {
         std::scoped_lock lock(mutex);
         encoder.finalize();
