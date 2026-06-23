@@ -18,10 +18,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
       - run: npm ci
 
       - name: Prepare Windows build tools
@@ -34,7 +30,32 @@ jobs:
           cmake --version
           ninja --version
 
-      - run: npm run build:win:portable
+      - name: Build Windows native helpers
+        run: npm run build:native:win
+
+      - name: Build renderer and Electron entrypoints
+        run: npm run build-vite
+
+      - name: Package Windows portable zip
+        run: npx electron-builder --win zip --x64 --config.npmRebuild=false
+
+      - name: Verify packaged FFmpeg
+        run: npm run verify:ffmpeg:win
+
+      - name: Verify Windows portable zip
+        run: npm run verify:win:portable
+
+      - name: Upload failed build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-release-diagnostics-${{ github.run_id }}
+          path: |
+            electron/native/wgc-capture/build/**
+            electron/native/bin/**
+            electron/ffmpeg-runtime/**
+            release/**
+          if-no-files-found: ignore
 
       - name: Create GitHub release
         shell: pwsh
