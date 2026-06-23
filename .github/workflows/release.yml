@@ -103,13 +103,18 @@ jobs:
       - name: Build renderer and Electron entrypoints
         run: npm run build-vite
 
-      - name: Package macOS DMG
+      - name: Package macOS app bundle
         env:
-          DEBUG: electron-builder,electron-osx-sign,dmg-builder
-        run: npx electron-builder --mac dmg --arm64 --config.npmRebuild=false
+          DEBUG: electron-builder,electron-osx-sign
+        run: npx electron-builder --mac dir --arm64 --config.npmRebuild=false
 
       - name: Verify packaged FFmpeg
         run: npm run verify:ffmpeg:mac:arm64
+
+      - name: Create macOS DMG
+        env:
+          MACOS_DMG_ARCH: arm64
+        run: node scripts/create-macos-dmg.mjs
 
       - name: Upload macOS release artifact
         uses: actions/upload-artifact@v5

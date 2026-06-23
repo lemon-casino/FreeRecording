@@ -112,6 +112,9 @@
     ],
     "icon": "icons/icons/win/icon.ico",
     "signAndEditExecutable": false,
+    "signtoolOptions": {
+      "sign": null
+    },
     "fileAssociations": [
       {
         "ext": "likelysnap",
