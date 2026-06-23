@@ -850,31 +850,37 @@ export function LaunchWindow() {
 				</div>
 
 				{/* Record/Stop group */}
-				<button
-					data-testid="launch-record-button"
-					className={`flex items-center justify-center rounded-full p-2 transition-[min-width,background-color] duration-150 ${recording ? "min-w-[78px]" : "min-w-[36px]"} ${trayLayout === "vertical" ? "min-h-9" : ""} ${styles.electronNoDrag} ${
-						recording
-							? paused
-								? "bg-amber-500/10 hover:bg-amber-500/15"
-								: "bg-red-500/12 hover:bg-red-500/16"
-							: "bg-white/[0.06] hover:bg-white/[0.10]"
-					}`}
-					onClick={toggleRecording}
+				<div
+					className={`flex items-center ${
+						trayLayout === "vertical" ? "flex-col gap-1" : "gap-1.5"
+					} ${styles.electronNoDrag}`}
 					style={{ flex: "0 0 auto" }}
 				>
-					<div className={`flex items-center justify-center ${recording ? "gap-1.5" : ""}`}>
+					<button
+						data-testid="launch-record-button"
+						className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-2 transition-[background-color] duration-150 ${
+							recording
+								? paused
+									? "bg-amber-500/10 hover:bg-amber-500/15"
+									: "bg-red-500/12 hover:bg-red-500/16"
+								: "bg-white/[0.06] hover:bg-white/[0.10]"
+						}`}
+						onClick={toggleRecording}
+					>
 						{recording
 							? getIcon("stop", paused ? "text-amber-400" : "text-red-400")
 							: getIcon("record", "text-white/80")}
-						{recording && (
-							<span
-								className={`${paused ? "text-amber-400" : "text-red-400"} inline-block w-[34px] text-left text-xs font-semibold tabular-nums`}
-							>
-								{formatTimePadded(elapsedSeconds)}
-							</span>
-						)}
-					</div>
-				</button>
+					</button>
+					{recording && (
+						<span
+							className={`block w-[38px] shrink-0 text-center text-xs font-semibold tabular-nums ${
+								paused ? "text-amber-400" : "text-red-400"
+							}`}
+						>
+							{formatTimePadded(elapsedSeconds)}
+						</span>
+					)}
+				</div>
 
 				{recording && (
 					<div
