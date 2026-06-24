@@ -41,7 +41,7 @@ jobs:
       - name: Package Windows installer and portable zip
         env:
           DEBUG: electron-builder
-        run: npx electron-builder --win nsis zip --x64 --config.npmRebuild=false
+        run: npx electron-builder --win nsis zip --x64 --config.npmRebuild=false --publish never
 
       - name: Verify packaged FFmpeg
         run: npm run verify:ffmpeg:win
@@ -106,7 +106,7 @@ jobs:
       - name: Package macOS app bundle
         env:
           DEBUG: electron-builder,electron-osx-sign
-        run: npx electron-builder --mac dir --arm64 --config.npmRebuild=false
+        run: npx electron-builder --mac dir --arm64 --config.npmRebuild=false --publish never
 
       - name: Verify packaged FFmpeg
         run: npm run verify:ffmpeg:mac:arm64
