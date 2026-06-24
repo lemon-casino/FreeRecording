@@ -26,6 +26,10 @@ export type NativeWindowsRecordingRequest = {
 			deviceId?: string;
 			deviceName?: string;
 			gain: number;
+			enhancement?: {
+				enabled: boolean;
+				mode: "rnnoise";
+			};
 		};
 	};
 	webcam: {

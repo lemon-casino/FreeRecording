@@ -914,6 +914,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 						deviceId: microphoneDeviceId,
 						deviceName: microphoneDeviceName,
 						gain: MIC_GAIN_BOOST,
+						enhancement: {
+							enabled: true,
+							mode: "rnnoise",
+						},
 					},
 				},
 				webcam: {
@@ -1033,6 +1037,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 						deviceId: microphoneDeviceId,
 						deviceName: microphoneDeviceName,
 						gain: MIC_GAIN_BOOST,
+						enhancement: {
+							enabled: true,
+							mode: "rnnoise",
+						},
 					},
 				},
 				webcam: {

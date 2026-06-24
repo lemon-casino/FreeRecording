@@ -18,8 +18,20 @@ let package = Package(
 		)
 	],
 	targets: [
+		.target(
+			name: "LikelyVoiceEnhancement",
+			path: "Sources/LikelyVoiceEnhancement",
+			publicHeadersPath: "include",
+			cSettings: [
+				.headerSearchPath("include"),
+				.headerSearchPath("rnnoise/include"),
+				.headerSearchPath("rnnoise/src"),
+				.define("RNNOISE_BUILD"),
+			]
+		),
 		.executableTarget(
 			name: "OpenScreenScreenCaptureKitHelper",
+			dependencies: ["LikelyVoiceEnhancement"],
 			path: "Sources/OpenScreenScreenCaptureKitHelper"
 		),
 		.executableTarget(

@@ -2,6 +2,8 @@
 
 #include "mf_encoder.h"
 
+#include "likely_voice_enhancer.h"
+
 #include <Windows.h>
 
 #include <atomic>
@@ -44,6 +46,7 @@ public:
         bool includeSystem,
         bool includeMicrophone,
         double microphoneGain,
+        bool enableMicrophoneEnhancement,
         OutputCallback output);
     ~AudioMixer();
 
@@ -64,6 +67,7 @@ private:
         DWORD byteCount,
         const AudioInputFormat& sourceFormat,
         double gain);
+    void appendMicrophone(const BYTE* data, DWORD byteCount);
     bool pop(std::vector<BYTE>& queue, std::vector<BYTE>& chunk, size_t byteCount);
     void mixLoop();
 
@@ -73,12 +77,15 @@ private:
     bool includeSystem_ = false;
     bool includeMicrophone_ = false;
     double microphoneGain_ = 1.0;
+    bool enableMicrophoneEnhancement_ = true;
     OutputCallback output_;
     std::mutex mutex_;
     std::condition_variable cv_;
     std::vector<BYTE> systemQueue_;
     std::vector<BYTE> microphoneQueue_;
     std::vector<BYTE> gainBuffer_;
+    std::vector<BYTE> microphoneProcessingBuffer_;
+    LikelyVoiceEnhancer* microphoneEnhancer_ = nullptr;
     std::thread thread_;
     std::atomic<bool> stopRequested_ = false;
     bool timelineStarted_ = false;

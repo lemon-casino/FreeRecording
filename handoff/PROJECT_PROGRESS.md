@@ -353,3 +353,18 @@ Continue validation and hardening from the current staged editor-open + FFmpeg e
   - Set the package/app version from `1.1.0` to `1.2.0` in `package.json` and `package-lock.json`.
   - Current macOS ARM64 DMG target is `/Users/macbook/Desktop/LikelySnap-Mac-arm64-1.2.0-Installer.dmg`.
   - Windows agents should build the x64 portable zip from the pushed `main` branch and expect `release/1.2.0/LikelySnap-Win-x64-1.2.0.zip`.
+
+## 2026-06-25 Native Microphone Voice Enhancement
+
+- Added a native `LikelyVoiceEnhancement` module backed by vendored RNNoise `v0.1.1` (`6cbfd53eb348a8d394e0757b4025c6ded34eb2b6`).
+- RNNoise is vendored as a closed source set with `rnn_data.c` / `rnn_data.h`, avoiding a CI model-generation step. License is preserved in `electron/native/screencapturekit/Sources/LikelyVoiceEnhancement/rnnoise/COPYING`.
+- The shared C wrapper processes 48 kHz interleaved PCM in 10 ms frames, then applies speech-gain smoothing, low-VAD attenuation, and limiting. Output is mono voice duplicated to the recorder channel count.
+- Windows WGC native recording now fixes the AAC/mixer target to 48 kHz, processes only the microphone stream before system-audio mixing, and emits `microphoneEnhancement: "rnnoise"` in the helper `audio-format` event.
+- macOS ScreenCaptureKit native recording now imports the same C module through SwiftPM, converts microphone `CMSampleBuffer` PCM to interleaved float, processes it, rebuilds a PCM sample buffer with the original presentation timestamp, and appends it to the microphone AAC writer input. System audio remains unprocessed.
+- Native recording requests now carry `audio.microphone.enhancement = { enabled: true, mode: "rnnoise" }` by default. A future settings switch can turn this into a user-facing control without changing the helper contract.
+- Verification passed on this Windows machine:
+  - `npx tsc --noEmit --pretty false`
+  - `npm test -- src/lib/nativeWindowsRecording.test.ts src/lib/nativeMacRecording.test.ts`
+  - `npx biome check src/hooks/useScreenRecorder.ts src/lib/nativeWindowsRecording.ts src/lib/nativeMacRecording.ts electron/ipc/handlers.ts electron/native/wgc-capture/CMakeLists.txt electron/native/screencapturekit/Package.swift`
+  - `npm run build-vite`
+- Native helper builds still need CI/real-machine validation. Local `npm run build:native:win` is blocked because this machine does not have Visual Studio C++ Build Tools / `vcvarsall.bat`; macOS SwiftPM cannot be compiled from this Windows host.

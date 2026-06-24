@@ -103,7 +103,8 @@ bool sameAudioFormatForMixing(const AudioInputFormat& left, const AudioInputForm
 AudioInputFormat makeAacCompatibleAudioFormat(const AudioInputFormat& source) {
     AudioInputFormat format{};
     format.subtype = MFAudioFormat_PCM;
-    format.sampleRate = source.sampleRate > 0 ? source.sampleRate : 48000;
+    (void)source;
+    format.sampleRate = likely_voice_enhancer_required_sample_rate();
     format.channels = 2;
     format.bitsPerSample = 16;
     format.blockAlign = format.channels * (format.bitsPerSample / 8);
@@ -258,6 +259,7 @@ AudioMixer::AudioMixer(
     bool includeSystem,
     bool includeMicrophone,
     double microphoneGain,
+    bool enableMicrophoneEnhancement,
     OutputCallback output)
     : format_(format),
       systemFormat_(systemFormat),
@@ -265,15 +267,28 @@ AudioMixer::AudioMixer(
       includeSystem_(includeSystem),
       includeMicrophone_(includeMicrophone),
       microphoneGain_(microphoneGain),
+      enableMicrophoneEnhancement_(enableMicrophoneEnhancement),
       output_(std::move(output)) {}
 
 AudioMixer::~AudioMixer() {
     stop();
+    if (microphoneEnhancer_) {
+        likely_voice_enhancer_destroy(microphoneEnhancer_);
+        microphoneEnhancer_ = nullptr;
+    }
 }
 
 bool AudioMixer::start() {
     if (!output_ || format_.sampleRate == 0 || format_.blockAlign == 0) {
         return false;
+    }
+
+    if (includeMicrophone_ && enableMicrophoneEnhancement_ && !microphoneEnhancer_ &&
+        likely_voice_enhancer_is_supported_format(static_cast<int>(format_.sampleRate), static_cast<int>(format_.channels))) {
+        microphoneEnhancer_ = likely_voice_enhancer_create(
+            static_cast<int>(format_.sampleRate),
+            static_cast<int>(format_.channels),
+            static_cast<float>(microphoneGain_));
     }
 
     stopRequested_ = false;
@@ -293,6 +308,9 @@ void AudioMixer::beginTimeline() {
         microphoneQueue_.clear();
         emittedFrames_ = 0;
         timelineStarted_ = true;
+        if (microphoneEnhancer_) {
+            likely_voice_enhancer_reset(microphoneEnhancer_);
+        }
     }
     cv_.notify_all();
 }
@@ -304,6 +322,9 @@ void AudioMixer::setPaused(bool paused) {
         if (paused_) {
             systemQueue_.clear();
             microphoneQueue_.clear();
+            if (microphoneEnhancer_) {
+                likely_voice_enhancer_reset(microphoneEnhancer_);
+            }
         }
     }
     cv_.notify_all();
@@ -342,7 +363,7 @@ void AudioMixer::pushMicrophone(const BYTE* data, DWORD byteCount) {
         if (paused_) {
             return;
         }
-        append(microphoneQueue_, data, byteCount, microphoneFormat_, microphoneGain_);
+        appendMicrophone(data, byteCount);
     }
     cv_.notify_all();
 }
@@ -359,6 +380,37 @@ void AudioMixer::append(
 
     convertAudioWithGain(data, byteCount, sourceFormat, format_, gain, gainBuffer_);
     queue.insert(queue.end(), gainBuffer_.begin(), gainBuffer_.end());
+}
+
+void AudioMixer::appendMicrophone(const BYTE* data, DWORD byteCount) {
+    if (!data || byteCount == 0) {
+        return;
+    }
+
+    const double conversionGain = microphoneEnhancer_ ? 1.0 : microphoneGain_;
+    convertAudioWithGain(data, byteCount, microphoneFormat_, format_, conversionGain, microphoneProcessingBuffer_);
+
+    if (microphoneEnhancer_ && !microphoneProcessingBuffer_.empty() && format_.blockAlign > 0) {
+        const int frameCount = static_cast<int>(microphoneProcessingBuffer_.size() / format_.blockAlign);
+        if (isPcmFormat(format_, 16)) {
+            likely_voice_enhancer_process_interleaved_int16(
+                microphoneEnhancer_,
+                reinterpret_cast<int16_t*>(microphoneProcessingBuffer_.data()),
+                frameCount,
+                static_cast<int>(format_.channels));
+        } else if (isFloatFormat(format_)) {
+            likely_voice_enhancer_process_interleaved_float(
+                microphoneEnhancer_,
+                reinterpret_cast<float*>(microphoneProcessingBuffer_.data()),
+                frameCount,
+                static_cast<int>(format_.channels));
+        }
+    }
+
+    microphoneQueue_.insert(
+        microphoneQueue_.end(),
+        microphoneProcessingBuffer_.begin(),
+        microphoneProcessingBuffer_.end());
 }
 
 bool AudioMixer::pop(std::vector<BYTE>& queue, std::vector<BYTE>& chunk, size_t byteCount) {

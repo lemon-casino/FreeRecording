@@ -31,6 +31,10 @@ export type NativeMacRecordingRequest = {
 			deviceId?: string;
 			deviceName?: string;
 			gain: number;
+			enhancement?: {
+				enabled: boolean;
+				mode: "rnnoise";
+			};
 		};
 	};
 	webcam: {

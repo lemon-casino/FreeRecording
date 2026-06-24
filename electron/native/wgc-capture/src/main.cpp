@@ -44,6 +44,7 @@ struct CaptureConfig {
     std::string microphoneDeviceId;
     std::string microphoneDeviceName;
     double microphoneGain = 1.0;
+    bool microphoneEnhancementEnabled = true;
     std::string webcamDeviceId;
     std::string webcamDeviceName;
     std::string webcamDirectShowClsid;
@@ -343,6 +344,7 @@ bool parseConfig(const std::string& json, CaptureConfig& config) {
     config.microphoneDeviceId = findString(json, "microphoneDeviceId");
     config.microphoneDeviceName = findString(json, "microphoneDeviceName");
     config.microphoneGain = findDouble(json, "microphoneGain", 1.0);
+    config.microphoneEnhancementEnabled = findBool(json, "microphoneEnhancementEnabled", true);
     config.webcamDeviceId = findString(json, "webcamDeviceId");
     config.webcamDeviceName = findString(json, "webcamDeviceName");
     config.webcamDirectShowClsid = findString(json, "webcamDirectShowClsid");
@@ -508,7 +510,10 @@ int main(int argc, char* argv[]) {
                   << ",\"microphone\":" << (config.captureMic ? "true" : "false");
         if (config.captureMic) {
             std::cout << ",\"microphoneDeviceName\":\""
-                      << jsonEscape(wideToUtf8(microphoneCapture.selectedDeviceName())) << "\"";
+                      << jsonEscape(wideToUtf8(microphoneCapture.selectedDeviceName())) << "\""
+                      << ",\"microphoneEnhancement\":\""
+                      << (config.microphoneEnhancementEnabled ? likely_voice_enhancer_algorithm() : "off")
+                      << "\"";
         }
         std::cout << "}" << std::endl;
         encoderAudioFormat = makeAacCompatibleAudioFormat(*audioFormat);
@@ -730,6 +735,7 @@ int main(int argc, char* argv[]) {
             config.captureSystemAudio,
             config.captureMic,
             config.microphoneGain,
+            config.microphoneEnhancementEnabled,
             [&](const BYTE* data, DWORD byteCount, int64_t timestampHns, int64_t durationHns) {
                 if (!encoder.writeAudio(data, byteCount, timestampHns, durationHns)) {
                     encodeFailed = true;

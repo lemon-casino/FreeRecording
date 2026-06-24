@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import CoreMedia
 import Foundation
+import LikelyVoiceEnhancement
 import ScreenCaptureKit
 
 struct Rectangle: Decodable {
@@ -35,10 +36,16 @@ struct RecordingRequest: Decodable {
 		}
 
 		struct Microphone: Decodable {
+			struct Enhancement: Decodable {
+				let enabled: Bool?
+				let mode: String?
+			}
+
 			let enabled: Bool
 			let deviceId: String?
 			let deviceName: String?
 			let gain: Double
+			let enhancement: Enhancement?
 		}
 
 		let system: SystemAudio
@@ -160,11 +167,20 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 	private var microphoneAudioSamplesDroppedBeforeWriterStart = 0
 	private var microphoneAudioSamplesDroppedInputNotReady = 0
 	private var microphoneAudioAppendFailures = 0
+	private var microphoneEnhancer: OpaquePointer?
+	private var microphoneEnhancementName = "off"
+	private var didWarnMicrophoneEnhancementFallback = false
 	private var webcamRecorder: NativeWebcamRecorder?
 	private var selectedVideoBitrate = 0
 
 	init(request: RecordingRequest) {
 		self.request = request
+	}
+
+	deinit {
+		if let microphoneEnhancer {
+			likely_voice_enhancer_destroy(microphoneEnhancer)
+		}
 	}
 
 	func start() async throws {
@@ -516,6 +532,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		}
 		if nativeMicrophoneEnabled {
 			microphoneAudioInput = try addAudioInput(to: writer, bitRate: 128_000)
+			setupMicrophoneEnhancer()
 		}
 	}
 
@@ -635,11 +652,311 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			return
 		}
 
-		if input.append(sampleBuffer) {
+		let bufferToAppend: CMSampleBuffer
+		if label == "microphone", let processedBuffer = processedMicrophoneSampleBuffer(sampleBuffer) {
+			bufferToAppend = processedBuffer
+		} else {
+			bufferToAppend = sampleBuffer
+		}
+
+		if input.append(bufferToAppend) {
 			recordAudioSamples(label: label, appended: sampleCount)
 		} else {
 			recordAudioSamples(label: label, appendFailures: sampleCount)
 		}
+	}
+
+	private func setupMicrophoneEnhancer() {
+		let enhancementEnabled = request.audio.microphone.enhancement?.enabled ?? true
+		guard enhancementEnabled else {
+			microphoneEnhancementName = "off"
+			return
+		}
+
+		let sampleRate = Int32(likely_voice_enhancer_required_sample_rate())
+		let channels: Int32 = 2
+		guard likely_voice_enhancer_is_supported_format(sampleRate, channels) != 0,
+			let enhancer = likely_voice_enhancer_create(
+				sampleRate,
+				channels,
+				Float(max(0.25, min(3.5, request.audio.microphone.gain)))
+			)
+		else {
+			warnMicrophoneEnhancementFallback("RNNoise microphone enhancement could not be initialized.")
+			microphoneEnhancementName = "off"
+			return
+		}
+
+		microphoneEnhancer = enhancer
+		if let algorithm = likely_voice_enhancer_algorithm() {
+			microphoneEnhancementName = String(cString: algorithm)
+		} else {
+			microphoneEnhancementName = "rnnoise"
+		}
+		emit([
+			"event": "audio-enhancement",
+			"schemaVersion": 1,
+			"target": "microphone",
+			"algorithm": microphoneEnhancementName,
+			"sampleRate": Int(sampleRate),
+			"channels": Int(channels),
+		])
+	}
+
+	private func processedMicrophoneSampleBuffer(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+		guard let microphoneEnhancer else {
+			return nil
+		}
+		let sampleCount = CMSampleBufferGetNumSamples(sampleBuffer)
+		guard sampleCount > 0 else {
+			return nil
+		}
+		guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+			let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)
+		else {
+			warnMicrophoneEnhancementFallback("Microphone sample buffer is missing an audio format description.")
+			return nil
+		}
+
+		let asbd = streamDescription.pointee
+		guard Int(asbd.mSampleRate.rounded()) == Int(likely_voice_enhancer_required_sample_rate()) else {
+			warnMicrophoneEnhancementFallback(
+				"Microphone sample rate \(asbd.mSampleRate) is not supported by RNNoise."
+			)
+			return nil
+		}
+		guard asbd.mFormatID == kAudioFormatLinearPCM else {
+			warnMicrophoneEnhancementFallback("Microphone sample buffer is not Linear PCM.")
+			return nil
+		}
+
+		guard let interleaved = readInterleavedStereoFloatSamples(
+			from: sampleBuffer,
+			asbd: asbd,
+			sampleCount: sampleCount
+		) else {
+			warnMicrophoneEnhancementFallback("Microphone PCM sample format is not supported for RNNoise.")
+			return nil
+		}
+
+		var processed = interleaved
+		let ok = processed.withUnsafeMutableBufferPointer { buffer in
+			likely_voice_enhancer_process_interleaved_float(
+				microphoneEnhancer,
+				buffer.baseAddress,
+				Int32(sampleCount),
+				2
+			)
+		}
+		guard ok != 0 else {
+			warnMicrophoneEnhancementFallback("RNNoise microphone enhancement failed while processing audio.")
+			return nil
+		}
+
+		return makeProcessedMicrophoneSampleBuffer(
+			samples: processed,
+			sampleCount: sampleCount,
+			presentationTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+		)
+	}
+
+	private func readInterleavedStereoFloatSamples(
+		from sampleBuffer: CMSampleBuffer,
+		asbd: AudioStreamBasicDescription,
+		sampleCount: Int
+	) -> [Float]? {
+		let channelCount = max(1, Int(asbd.mChannelsPerFrame))
+		let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0 && asbd.mBitsPerChannel == 32
+		let isSignedInteger = (asbd.mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0
+		let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+		guard isFloat || (isSignedInteger && (asbd.mBitsPerChannel == 16 || asbd.mBitsPerChannel == 32)) else {
+			return nil
+		}
+
+		var blockBuffer: CMBlockBuffer?
+		var audioBufferListSize = 0
+		var status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+			sampleBuffer,
+			bufferListSizeNeededOut: &audioBufferListSize,
+			bufferListOut: nil,
+			bufferListSize: 0,
+			blockBufferAllocator: kCFAllocatorDefault,
+			blockBufferMemoryAllocator: kCFAllocatorDefault,
+			flags: 0,
+			blockBufferOut: &blockBuffer
+		)
+		guard status == noErr, audioBufferListSize > 0 else {
+			return nil
+		}
+
+		let rawAudioBufferList = UnsafeMutableRawPointer.allocate(
+			byteCount: audioBufferListSize,
+			alignment: MemoryLayout<AudioBufferList>.alignment
+		)
+		defer {
+			rawAudioBufferList.deallocate()
+		}
+		let audioBufferList = rawAudioBufferList.bindMemory(to: AudioBufferList.self, capacity: 1)
+		status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+			sampleBuffer,
+			bufferListSizeNeededOut: nil,
+			bufferListOut: audioBufferList,
+			bufferListSize: audioBufferListSize,
+			blockBufferAllocator: kCFAllocatorDefault,
+			blockBufferMemoryAllocator: kCFAllocatorDefault,
+			flags: 0,
+			blockBufferOut: &blockBuffer
+		)
+		guard status == noErr else {
+			return nil
+		}
+
+		let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+		guard buffers.count > 0 else {
+			return nil
+		}
+
+		func sample(channel: Int, frame: Int) -> Float {
+			let clampedChannel = min(max(0, channel), channelCount - 1)
+			if isNonInterleaved {
+				let bufferIndex = min(clampedChannel, buffers.count - 1)
+				guard let data = buffers[bufferIndex].mData else {
+					return 0
+				}
+				if isFloat {
+					return data.assumingMemoryBound(to: Float.self)[frame]
+				}
+				if asbd.mBitsPerChannel == 16 {
+					return Float(data.assumingMemoryBound(to: Int16.self)[frame]) / 32768.0
+				}
+				return Float(data.assumingMemoryBound(to: Int32.self)[frame]) / 2_147_483_648.0
+			}
+
+			guard let data = buffers[0].mData else {
+				return 0
+			}
+			let index = frame * channelCount + clampedChannel
+			if isFloat {
+				return data.assumingMemoryBound(to: Float.self)[index]
+			}
+			if asbd.mBitsPerChannel == 16 {
+				return Float(data.assumingMemoryBound(to: Int16.self)[index]) / 32768.0
+			}
+			return Float(data.assumingMemoryBound(to: Int32.self)[index]) / 2_147_483_648.0
+		}
+
+		var output = [Float](repeating: 0, count: sampleCount * 2)
+		for frame in 0 ..< sampleCount {
+			var mono: Float = 0
+			for channel in 0 ..< channelCount {
+				mono += sample(channel: channel, frame: frame)
+			}
+			mono /= Float(channelCount)
+			output[frame * 2] = mono
+			output[frame * 2 + 1] = mono
+		}
+		return output
+	}
+
+	private func makeProcessedMicrophoneSampleBuffer(
+		samples: [Float],
+		sampleCount: Int,
+		presentationTime: CMTime
+	) -> CMSampleBuffer? {
+		let channels = 2
+		let bytesPerFrame = channels * MemoryLayout<Float>.size
+		let byteCount = samples.count * MemoryLayout<Float>.size
+		var blockBuffer: CMBlockBuffer?
+		var status = CMBlockBufferCreateWithMemoryBlock(
+			allocator: kCFAllocatorDefault,
+			memoryBlock: nil,
+			blockLength: byteCount,
+			blockAllocator: kCFAllocatorDefault,
+			customBlockSource: nil,
+			offsetToData: 0,
+			dataLength: byteCount,
+			flags: 0,
+			blockBufferOut: &blockBuffer
+		)
+		guard status == kCMBlockBufferNoErr, let blockBuffer else {
+			return nil
+		}
+
+		status = samples.withUnsafeBytes { rawBuffer in
+			guard let baseAddress = rawBuffer.baseAddress else {
+				return OSStatus(-1)
+			}
+			return CMBlockBufferReplaceDataBytes(
+				with: baseAddress,
+				blockBuffer: blockBuffer,
+				offsetIntoDestination: 0,
+				dataLength: byteCount
+			)
+		}
+		guard status == kCMBlockBufferNoErr else {
+			return nil
+		}
+
+		var outputAsbd = AudioStreamBasicDescription(
+			mSampleRate: Double(likely_voice_enhancer_required_sample_rate()),
+			mFormatID: kAudioFormatLinearPCM,
+			mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+			mBytesPerPacket: UInt32(bytesPerFrame),
+			mFramesPerPacket: 1,
+			mBytesPerFrame: UInt32(bytesPerFrame),
+			mChannelsPerFrame: UInt32(channels),
+			mBitsPerChannel: UInt32(MemoryLayout<Float>.size * 8),
+			mReserved: 0
+		)
+		var outputFormatDescription: CMAudioFormatDescription?
+		status = CMAudioFormatDescriptionCreate(
+			allocator: kCFAllocatorDefault,
+			asbd: &outputAsbd,
+			layoutSize: 0,
+			layout: nil,
+			magicCookieSize: 0,
+			magicCookie: nil,
+			extensions: nil,
+			formatDescriptionOut: &outputFormatDescription
+		)
+		guard status == noErr, let outputFormatDescription else {
+			return nil
+		}
+
+		var timing = CMSampleTimingInfo(
+			duration: CMTime(value: 1, timescale: CMTimeScale(likely_voice_enhancer_required_sample_rate())),
+			presentationTimeStamp: presentationTime,
+			decodeTimeStamp: .invalid
+		)
+		var sampleSize = bytesPerFrame
+		var processedSampleBuffer: CMSampleBuffer?
+		status = CMSampleBufferCreateReady(
+			allocator: kCFAllocatorDefault,
+			dataBuffer: blockBuffer,
+			formatDescription: outputFormatDescription,
+			sampleCount: sampleCount,
+			sampleTimingEntryCount: 1,
+			sampleTimingArray: &timing,
+			sampleSizeEntryCount: 1,
+			sampleSizeArray: &sampleSize,
+			sampleBufferOut: &processedSampleBuffer
+		)
+		guard status == noErr else {
+			return nil
+		}
+		return processedSampleBuffer
+	}
+
+	private func warnMicrophoneEnhancementFallback(_ message: String) {
+		guard !didWarnMicrophoneEnhancementFallback else {
+			return
+		}
+		didWarnMicrophoneEnhancementFallback = true
+		emit([
+			"event": "warning",
+			"code": "microphone-enhancement-fallback",
+			"message": message,
+		])
 	}
 
 	private func recordAudioSamples(
@@ -670,6 +987,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		diagnostics["requestedAudio"] = [
 			"system": request.audio.system.enabled,
 			"microphone": request.audio.microphone.enabled,
+			"microphoneEnhancement": microphoneEnhancementName,
 		]
 		diagnostics["nativeMicrophoneEnabled"] = nativeMicrophoneEnabled
 		diagnostics["recordingStarted"] = [
