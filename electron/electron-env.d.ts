@@ -391,7 +391,9 @@ interface Window {
 		hudOverlayHide: () => void;
 		hudOverlayClose: () => void;
 		setHudOverlayIgnoreMouseEvents: (ignore: boolean) => void;
-		moveHudOverlayBy: (deltaX: number, deltaY: number) => void;
+		startHudOverlayDrag: () => void;
+		dragHudOverlayToCursor: () => void;
+		endHudOverlayDrag: () => void;
 		setHudOverlaySize: (width: number, height: number) => void;
 		showCountdownOverlay: (value: number, runId: number) => Promise<void>;
 		setCountdownOverlayValue: (value: number, runId: number) => Promise<void>;

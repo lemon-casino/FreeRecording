@@ -26,8 +26,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	setHudOverlayIgnoreMouseEvents: (ignore: boolean) => {
 		ipcRenderer.send("hud-overlay-ignore-mouse-events", ignore);
 	},
-	moveHudOverlayBy: (deltaX: number, deltaY: number) => {
-		ipcRenderer.send("hud-overlay-move-by", deltaX, deltaY);
+	startHudOverlayDrag: () => {
+		ipcRenderer.send("hud-overlay-drag-start");
+	},
+	dragHudOverlayToCursor: () => {
+		ipcRenderer.send("hud-overlay-drag-to-cursor");
+	},
+	endHudOverlayDrag: () => {
+		ipcRenderer.send("hud-overlay-drag-end");
 	},
 	snapHudOverlayToNearestEdge: () => {
 		return ipcRenderer.invoke("hud-overlay-snap-to-nearest-edge");

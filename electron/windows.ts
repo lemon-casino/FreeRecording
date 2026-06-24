@@ -22,18 +22,22 @@ type HudOverlayEdge = "top" | "right" | "bottom" | "left";
 const HUD_OVERLAY_EDGE_MARGIN = 8;
 
 let hudOverlayPinnedEdge: HudOverlayEdge = "bottom";
+let hudOverlayDragState: {
+	offsetX: number;
+	offsetY: number;
+} | null = null;
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
 
-function getNearestHudOverlayEdge(bounds: Electron.Rectangle): HudOverlayEdge {
-	const { workArea } = screen.getDisplayMatching(bounds);
+function getNearestHudOverlayEdgeToPoint(point: Electron.Point): HudOverlayEdge {
+	const { workArea } = screen.getDisplayNearestPoint(point);
 	const distances: Record<HudOverlayEdge, number> = {
-		top: Math.abs(bounds.y - workArea.y),
-		right: Math.abs(workArea.x + workArea.width - (bounds.x + bounds.width)),
-		bottom: Math.abs(workArea.y + workArea.height - (bounds.y + bounds.height)),
-		left: Math.abs(bounds.x - workArea.x),
+		top: Math.abs(point.y - workArea.y),
+		right: Math.abs(workArea.x + workArea.width - point.x),
+		bottom: Math.abs(workArea.y + workArea.height - point.y),
+		left: Math.abs(point.x - workArea.x),
 	};
 
 	return (Object.entries(distances) as Array<[HudOverlayEdge, number]>).reduce((best, item) =>
@@ -92,6 +96,48 @@ function getBoundsPinnedToEdge(
 	}
 }
 
+function getBoundsPinnedToPointDisplayEdge(
+	point: Electron.Point,
+	width: number,
+	height: number,
+	edge: HudOverlayEdge,
+): Electron.Rectangle {
+	const { workArea } = screen.getDisplayNearestPoint(point);
+	const maxX = workArea.x + workArea.width - width;
+	const maxY = workArea.y + workArea.height - height;
+
+	switch (edge) {
+		case "left":
+			return {
+				x: clamp(workArea.x + HUD_OVERLAY_EDGE_MARGIN, workArea.x, maxX),
+				y: clamp(Math.round(point.y - height / 2), workArea.y, maxY),
+				width,
+				height,
+			};
+		case "right":
+			return {
+				x: clamp(workArea.x + workArea.width - width - HUD_OVERLAY_EDGE_MARGIN, workArea.x, maxX),
+				y: clamp(Math.round(point.y - height / 2), workArea.y, maxY),
+				width,
+				height,
+			};
+		case "top":
+			return {
+				x: clamp(Math.round(point.x - width / 2), workArea.x, maxX),
+				y: clamp(workArea.y + HUD_OVERLAY_EDGE_MARGIN, workArea.y, maxY),
+				width,
+				height,
+			};
+		case "bottom":
+			return {
+				x: clamp(Math.round(point.x - width / 2), workArea.x, maxX),
+				y: clamp(workArea.y + workArea.height - height - HUD_OVERLAY_EDGE_MARGIN, workArea.y, maxY),
+				width,
+				height,
+			};
+	}
+}
+
 ipcMain.on("hud-overlay-hide", () => {
 	if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
 		hudOverlayWindow.minimize();
@@ -104,18 +150,34 @@ ipcMain.on("hud-overlay-ignore-mouse-events", (_event, ignore: boolean) => {
 	}
 });
 
-ipcMain.on("hud-overlay-move-by", (_event, deltaX: number, deltaY: number) => {
-	if (
-		!hudOverlayWindow ||
-		hudOverlayWindow.isDestroyed() ||
-		!Number.isFinite(deltaX) ||
-		!Number.isFinite(deltaY)
-	) {
+ipcMain.on("hud-overlay-drag-start", () => {
+	if (!hudOverlayWindow || hudOverlayWindow.isDestroyed()) {
 		return;
 	}
 
-	const [x, y] = hudOverlayWindow.getPosition();
-	hudOverlayWindow.setPosition(Math.round(x + deltaX), Math.round(y + deltaY), false);
+	const cursor = screen.getCursorScreenPoint();
+	const bounds = hudOverlayWindow.getBounds();
+	hudOverlayDragState = {
+		offsetX: cursor.x - bounds.x,
+		offsetY: cursor.y - bounds.y,
+	};
+});
+
+ipcMain.on("hud-overlay-drag-to-cursor", () => {
+	if (!hudOverlayWindow || hudOverlayWindow.isDestroyed() || !hudOverlayDragState) {
+		return;
+	}
+
+	const cursor = screen.getCursorScreenPoint();
+	hudOverlayWindow.setPosition(
+		Math.round(cursor.x - hudOverlayDragState.offsetX),
+		Math.round(cursor.y - hudOverlayDragState.offsetY),
+		false,
+	);
+});
+
+ipcMain.on("hud-overlay-drag-end", () => {
+	hudOverlayDragState = null;
 });
 
 ipcMain.handle("hud-overlay-snap-to-nearest-edge", () => {
@@ -123,11 +185,13 @@ ipcMain.handle("hud-overlay-snap-to-nearest-edge", () => {
 		return { edge: hudOverlayPinnedEdge };
 	}
 
+	hudOverlayDragState = null;
 	const bounds = hudOverlayWindow.getBounds();
-	const edge = getNearestHudOverlayEdge(bounds);
+	const cursor = screen.getCursorScreenPoint();
+	const edge = getNearestHudOverlayEdgeToPoint(cursor);
 	hudOverlayPinnedEdge = edge;
 	hudOverlayWindow.setBounds(
-		getBoundsPinnedToEdge(bounds, bounds.width, bounds.height, edge),
+		getBoundsPinnedToPointDisplayEdge(cursor, bounds.width, bounds.height, edge),
 		false,
 	);
 	notifyHudOverlayEdge(edge);
