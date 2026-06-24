@@ -13,6 +13,11 @@
 		"chooseRecordingDirectory": "Choose recording folder"
 	},
 	"audio": {
+		"menu": "오디오",
+		"systemAudio": "시스템 오디오",
+		"microphone": "마이크",
+		"microphoneDevice": "마이크 장치",
+		"noMicrophones": "마이크를 찾을 수 없음",
 		"enableSystemAudio": "시스템 오디오 활성화",
 		"disableSystemAudio": "시스템 오디오 비활성화",
 		"enableMicrophone": "마이크 활성화",

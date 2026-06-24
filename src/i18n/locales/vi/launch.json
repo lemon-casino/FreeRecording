@@ -13,6 +13,11 @@
 		"chooseRecordingDirectory": "Choose recording folder"
 	},
 	"audio": {
+		"menu": "Âm thanh",
+		"systemAudio": "Âm thanh hệ thống",
+		"microphone": "Micro",
+		"microphoneDevice": "Thiết bị micro",
+		"noMicrophones": "Không tìm thấy micro",
 		"enableSystemAudio": "Bật âm thanh hệ thống",
 		"disableSystemAudio": "Tắt âm thanh hệ thống",
 		"enableMicrophone": "Bật micro",

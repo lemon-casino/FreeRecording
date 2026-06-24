@@ -123,8 +123,11 @@ test.describe("Windows native checklist smoke tests", () => {
 				.not.toBeNull();
 			await expect(hudWindow.getByTestId("launch-record-button")).toBeEnabled();
 			await expect(hudWindow.getByTestId("launch-source-selector-button")).toBeVisible();
-			await expect(hudWindow.getByTestId("launch-system-audio-button")).toBeEnabled();
-			await expect(hudWindow.getByTestId("launch-microphone-button")).toBeEnabled();
+			await expect(hudWindow.getByTestId("launch-audio-button")).toBeEnabled();
+			await hudWindow.getByTestId("launch-audio-button").click();
+			await expect(hudWindow.getByTestId("launch-system-audio-switch")).toBeEnabled();
+			await expect(hudWindow.getByTestId("launch-microphone-switch")).toBeEnabled();
+			await hudWindow.keyboard.press("Escape");
 
 			await hudWindow.getByTestId("launch-source-selector-button").click();
 			const sourceWindow = await app.waitForEvent("window", {

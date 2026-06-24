@@ -13,6 +13,11 @@
 		"chooseRecordingDirectory": "Choose recording folder"
 	},
 	"audio": {
+		"menu": "Ses",
+		"systemAudio": "Sistem sesi",
+		"microphone": "Mikrofon",
+		"microphoneDevice": "Mikrofon cihazı",
+		"noMicrophones": "Mikrofon bulunamadı",
 		"enableSystemAudio": "Sistem sesini etkinleştir",
 		"disableSystemAudio": "Sistem sesini devre dışı bırak",
 		"enableMicrophone": "Mikrofonu etkinleştir",

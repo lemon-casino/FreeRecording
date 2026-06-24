@@ -13,6 +13,11 @@
 		"chooseRecordingDirectory": "Choose recording folder"
 	},
 	"audio": {
+		"menu": "音声",
+		"systemAudio": "システム音声",
+		"microphone": "マイク",
+		"microphoneDevice": "マイクデバイス",
+		"noMicrophones": "マイクが見つかりません",
 		"enableSystemAudio": "システム音声を有効にする",
 		"disableSystemAudio": "システム音声を無効にする",
 		"enableMicrophone": "マイクを有効にする",

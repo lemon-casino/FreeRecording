@@ -13,6 +13,11 @@
 		"chooseRecordingDirectory": "選擇錄製資料夾"
 	},
 	"audio": {
+		"menu": "音訊",
+		"systemAudio": "系統聲音",
+		"microphone": "麥克風",
+		"microphoneDevice": "麥克風裝置",
+		"noMicrophones": "未找到麥克風",
 		"enableSystemAudio": "啟用系統音訊",
 		"disableSystemAudio": "停用系統音訊",
 		"enableMicrophone": "啟用麥克風",

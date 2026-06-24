@@ -13,6 +13,11 @@
 		"chooseRecordingDirectory": "Choose recording folder"
 	},
 	"audio": {
+		"menu": "Audio",
+		"systemAudio": "Audio di sistema",
+		"microphone": "Microfono",
+		"microphoneDevice": "Dispositivo microfono",
+		"noMicrophones": "Nessun microfono trovato",
 		"enableSystemAudio": "Abilita audio di sistema",
 		"disableSystemAudio": "Disabilita audio di sistema",
 		"enableMicrophone": "Abilita microfono",

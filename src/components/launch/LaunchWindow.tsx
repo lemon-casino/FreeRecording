@@ -43,6 +43,7 @@ import { useScreenRecorder } from "../../hooks/useScreenRecorder";
 import { requestCameraAccess } from "../../lib/requestCameraAccess";
 import { formatTimePadded } from "../../utils/timeUtils";
 import { AudioLevelMeter } from "../ui/audio-level-meter";
+import { Switch } from "../ui/switch";
 import { Tooltip } from "../ui/tooltip";
 import styles from "./LaunchWindow.module.css";
 import { openSourceSelectorWithPermissionRetry } from "./openSourceSelectorFlow";
@@ -134,17 +135,14 @@ export function LaunchWindow() {
 		setCursorCaptureMode,
 	} = useScreenRecorder();
 
-	const showMicControls = microphoneEnabled && !recording;
+	const audioMeterEnabled = microphoneEnabled && !recording;
 	const showWebcamControls = webcamEnabled && !recording;
-
-	const [isMicHovered, setIsMicHovered] = useState(false);
-	const [isMicFocused, setIsMicFocused] = useState(false);
-	const micExpanded = isMicHovered || isMicFocused;
 
 	const [isWebcamHovered, setIsWebcamHovered] = useState(false);
 	const [isWebcamFocused, setIsWebcamFocused] = useState(false);
 	const webcamExpanded = isWebcamHovered || isWebcamFocused;
 	const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+	const [isAudioMenuOpen, setIsAudioMenuOpen] = useState(false);
 	const [trayLayoutPreference, setTrayLayoutPreference] = useState<TrayLayoutPreference>(
 		() => loadUserPreferences().trayLayout,
 	);
@@ -160,6 +158,8 @@ export function LaunchWindow() {
 	const [recordingDirectoryPath, setRecordingDirectoryPath] = useState("");
 	const [recordingDirectoryWritable, setRecordingDirectoryWritable] = useState(true);
 	const [showOpenStudioShortcut, setShowOpenStudioShortcut] = useState(true);
+	const audioTriggerRef = useRef<HTMLButtonElement | null>(null);
+	const audioMenuPanelRef = useRef<HTMLDivElement | null>(null);
 	const languageTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const languageMenuPanelRef = useRef<HTMLDivElement | null>(null);
 	const hudBarRef = useRef<HTMLDivElement | null>(null);
@@ -176,6 +176,15 @@ export function LaunchWindow() {
 		top: 12,
 		maxHeight: 240,
 	});
+	const [audioMenuStyle, setAudioMenuStyle] = useState<{
+		right: number;
+		top: number;
+		maxHeight: number;
+	}>({
+		right: 12,
+		top: 12,
+		maxHeight: 280,
+	});
 
 	const {
 		devices: micDevices,
@@ -190,9 +199,7 @@ export function LaunchWindow() {
 		error: cameraDevicesError,
 	} = useCameraDevices(webcamEnabled);
 
-	const selectedMicLabel =
-		micDevices.find((d) => d.deviceId === (microphoneDeviceId || selectedMicId))?.label ||
-		t("audio.defaultMicrophone");
+	const audioEnabled = microphoneEnabled || systemAudioEnabled;
 	const selectedCameraDevice = cameraDevices.find(
 		(d) => d.deviceId === (webcamDeviceId || selectedCameraId),
 	);
@@ -205,7 +212,7 @@ export function LaunchWindow() {
 				: selectedCameraDevice?.label || t("webcam.defaultCamera");
 
 	const { level } = useAudioLevelMeter({
-		enabled: showMicControls,
+		enabled: audioMeterEnabled,
 		deviceId: microphoneDeviceId,
 	});
 	const recordingDirectoryTooltip = recordingDirectoryPath
@@ -314,20 +321,27 @@ export function LaunchWindow() {
 	}, []);
 
 	useEffect(() => {
-		if (!isLanguageMenuOpen) return;
+		if (!isLanguageMenuOpen && !isAudioMenuOpen) return;
 
 		const handlePointerDown = (event: PointerEvent) => {
 			const target = event.target as Node;
-			const clickedTrigger = languageTriggerRef.current?.contains(target);
-			const clickedMenu = languageMenuPanelRef.current?.contains(target);
-			if (!clickedTrigger && !clickedMenu) {
+			const clickedLanguageTrigger = languageTriggerRef.current?.contains(target);
+			const clickedLanguageMenu = languageMenuPanelRef.current?.contains(target);
+			const clickedAudioTrigger = audioTriggerRef.current?.contains(target);
+			const clickedAudioMenu = audioMenuPanelRef.current?.contains(target);
+
+			if (isLanguageMenuOpen && !clickedLanguageTrigger && !clickedLanguageMenu) {
 				setIsLanguageMenuOpen(false);
+			}
+			if (isAudioMenuOpen && !clickedAudioTrigger && !clickedAudioMenu) {
+				setIsAudioMenuOpen(false);
 			}
 		};
 
 		const handleEscape = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
 				setIsLanguageMenuOpen(false);
+				setIsAudioMenuOpen(false);
 			}
 		};
 
@@ -338,7 +352,7 @@ export function LaunchWindow() {
 			window.removeEventListener("pointerdown", handlePointerDown);
 			window.removeEventListener("keydown", handleEscape);
 		};
-	}, [isLanguageMenuOpen]);
+	}, [isLanguageMenuOpen, isAudioMenuOpen]);
 
 	useEffect(() => {
 		if (!isLanguageMenuOpen || !languageTriggerRef.current) return;
@@ -367,6 +381,39 @@ export function LaunchWindow() {
 			window.removeEventListener("scroll", updatePosition, true);
 		};
 	}, [isLanguageMenuOpen]);
+
+	useEffect(() => {
+		if (!isAudioMenuOpen || !audioTriggerRef.current) return;
+
+		const updatePosition = () => {
+			if (!audioTriggerRef.current) return;
+			const rect = audioTriggerRef.current.getBoundingClientRect();
+			const gap = 8;
+			const viewportPadding = 8;
+			const availableAbove = rect.top - viewportPadding - gap;
+			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
+			const placeAbove = availableAbove >= 180 || availableAbove >= availableBelow;
+			const availableHeight = Math.max(120, placeAbove ? availableAbove : availableBelow);
+			const top = placeAbove
+				? Math.max(viewportPadding, rect.top - gap - availableHeight)
+				: Math.min(window.innerHeight - viewportPadding - availableHeight, rect.bottom + gap);
+
+			setAudioMenuStyle({
+				right: Math.max(viewportPadding, window.innerWidth - rect.right),
+				top,
+				maxHeight: availableHeight,
+			});
+		};
+
+		updatePosition();
+		window.addEventListener("resize", updatePosition);
+		window.addEventListener("scroll", updatePosition, true);
+
+		return () => {
+			window.removeEventListener("resize", updatePosition);
+			window.removeEventListener("scroll", updatePosition, true);
+		};
+	}, [isAudioMenuOpen]);
 
 	useEffect(() => {
 		if (!isLanguageMenuOpen || !languageMenuPanelRef.current) return;
@@ -425,6 +472,11 @@ export function LaunchWindow() {
 			contentWidth = Math.max(contentWidth, Math.ceil(rect.width));
 			contentHeight = Math.max(contentHeight, Math.ceil(rect.height));
 		}
+		if (audioMenuPanelRef.current) {
+			const rect = audioMenuPanelRef.current.getBoundingClientRect();
+			contentWidth = Math.max(contentWidth, Math.ceil(rect.width));
+			contentHeight = Math.max(contentHeight, Math.ceil(rect.height));
+		}
 
 		setHudBarHeight((prev) => {
 			const next = Math.round(barHeight);
@@ -448,6 +500,7 @@ export function LaunchWindow() {
 		hudResizeObserverRef.current = observer;
 		if (hudBarRef.current) observer.observe(hudBarRef.current);
 		if (deviceSelectorRef.current) observer.observe(deviceSelectorRef.current);
+		if (audioMenuPanelRef.current) observer.observe(audioMenuPanelRef.current);
 		measureHudSize();
 		return () => {
 			observer.disconnect();
@@ -477,6 +530,10 @@ export function LaunchWindow() {
 		(el: HTMLDivElement | null) => observeHudElement(el, languageMenuPanelRef),
 		[observeHudElement],
 	);
+	const setAudioMenuPanelEl = useCallback(
+		(el: HTMLDivElement | null) => observeHudElement(el, audioMenuPanelRef),
+		[observeHudElement],
+	);
 
 	const hudMouseEventsEnabledRef = useRef<boolean | undefined>(undefined);
 	const setHudMouseEventsEnabled = useCallback((enabled: boolean) => {
@@ -495,8 +552,8 @@ export function LaunchWindow() {
 	}, [setHudMouseEventsEnabled]);
 
 	useEffect(() => {
-		setHudMouseEventsEnabled(isLanguageMenuOpen);
-	}, [isLanguageMenuOpen, setHudMouseEventsEnabled]);
+		setHudMouseEventsEnabled(isLanguageMenuOpen || isAudioMenuOpen);
+	}, [isLanguageMenuOpen, isAudioMenuOpen, setHudMouseEventsEnabled]);
 
 	useEffect(() => {
 		return window.electronAPI?.onHudOverlayEdgeChanged?.((edge) => {
@@ -505,8 +562,6 @@ export function LaunchWindow() {
 	}, []);
 
 	const [selectedSource, setSelectedSource] = useState("Screen");
-	const [, setRecordPointerDownCount] = useState(0);
-
 	useEffect(() => {
 		const checkSelectedSource = async () => {
 			if (window.electronAPI) {
@@ -558,10 +613,11 @@ export function LaunchWindow() {
 		saveUserPreferences({ trayLayout: nextLayout });
 	};
 
-	const toggleMicrophone = () => {
-		if (!recording) {
-			setMicrophoneEnabled(!microphoneEnabled);
-		}
+	const selectMicrophoneDevice = (deviceId: string) => {
+		const selectedDevice = micDevices.find((device) => device.deviceId === deviceId);
+		setSelectedMicId(deviceId);
+		setMicrophoneDeviceId(deviceId);
+		setMicrophoneDeviceName(selectedDevice?.label);
 	};
 	const handleHudDragPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
 		event.preventDefault();
@@ -618,20 +674,22 @@ export function LaunchWindow() {
 				}
 				const target = event.target as HTMLElement | null;
 				const shouldCapture =
-					isLanguageMenuOpen || Boolean(target?.closest("[data-hud-interactive='true']"));
+					isLanguageMenuOpen ||
+					isAudioMenuOpen ||
+					Boolean(target?.closest("[data-hud-interactive='true']"));
 				setHudMouseEventsEnabled(shouldCapture);
 			}}
 			onPointerLeave={() => {
 				if (isDraggingHudRef.current) {
 					return;
 				}
-				if (!isLanguageMenuOpen) {
+				if (!isLanguageMenuOpen && !isAudioMenuOpen) {
 					setHudMouseEventsEnabled(false);
 				}
 			}}
 		>
 			{/* Device selectors, fixed above HUD bar, viewport-relative, never clipped */}
-			{(showMicControls || showWebcamControls) && (
+			{showWebcamControls && (
 				<div
 					ref={setDeviceSelectorEl}
 					data-hud-interactive="true"
@@ -644,132 +702,80 @@ export function LaunchWindow() {
 							: undefined
 					}
 				>
-					{/* Mic selector */}
-					{showMicControls && (
-						<div
-							className={`flex h-9 items-center gap-2 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0c10]/90 px-3 py-1.5 shadow-[0_6px_16px_rgba(0,0,0,0.24)] backdrop-blur-2xl transition-all duration-300 ${!micExpanded ? "opacity-60 grayscale-[0.5]" : "opacity-100"}`}
-							onMouseEnter={() => setIsMicHovered(true)}
-							onMouseLeave={() => setIsMicHovered(false)}
-							onFocus={() => setIsMicFocused(true)}
-							onBlur={() => setIsMicFocused(false)}
-							style={{ width: micExpanded ? "240px" : "140px", transition: "width 300ms ease" }}
-						>
-							<div className="relative flex-1 min-w-0">
-								{!micExpanded && (
-									<div className="text-white/60 text-[10px] font-medium truncate">
-										{selectedMicLabel}
-									</div>
-								)}
+					{/* Webcam selector */}
+					<div
+						className={`flex h-9 items-center gap-2 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0c10]/90 px-3 py-1.5 shadow-[0_6px_16px_rgba(0,0,0,0.24)] backdrop-blur-2xl transition-all duration-300 ${!webcamExpanded ? "opacity-60 grayscale-[0.5]" : "opacity-100"}`}
+						onMouseEnter={() => setIsWebcamHovered(true)}
+						onMouseLeave={() => setIsWebcamHovered(false)}
+						onFocus={() => setIsWebcamFocused(true)}
+						onBlur={() => setIsWebcamFocused(false)}
+						style={{ width: webcamExpanded ? "240px" : "140px", transition: "width 300ms ease" }}
+					>
+						<div className="relative flex-1 min-w-0">
+							{!webcamExpanded && (
+								<div className="text-white/60 text-[10px] font-medium truncate">
+									{selectedCameraLabel}
+								</div>
+							)}
+							{webcamExpanded &&
+								(isCameraDevicesLoading ? (
+									<span className="text-white/40 text-[10px] italic">{t("webcam.searching")}</span>
+								) : cameraDevicesError ? (
+									<span className="text-white/40 text-[10px] italic">
+										{t("webcam.unavailable")}
+									</span>
+								) : cameraDevices.length === 0 ? (
+									<span className="text-white/40 text-[10px] italic">{t("webcam.noneFound")}</span>
+								) : (
+									<>
+										<select
+											value={webcamDeviceId || selectedCameraId}
+											onChange={(e) => {
+												const device = cameraDevices.find(
+													(item) => item.deviceId === e.target.value,
+												);
+												setSelectedCameraId(e.target.value);
+												setWebcamDeviceId(e.target.value);
+												setWebcamDeviceName(device?.label);
+											}}
+											className="w-full appearance-none bg-white/5 text-white text-[11px] rounded-lg pl-2 pr-6 py-1 border border-white/10 outline-none hover:bg-white/10 transition-colors cursor-pointer"
+										>
+											{cameraDevices.map((device) => (
+												<option
+													key={device.deviceId}
+													value={device.deviceId}
+													className="bg-[#1c1c24]"
+												>
+													{device.label}
+												</option>
+											))}
+										</select>
+										<ChevronDown
+											size={12}
+											className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
+										/>
+									</>
+								))}
+							{(!webcamExpanded || cameraDevices.length === 0) && (
 								<select
-									value={microphoneDeviceId || selectedMicId}
+									value={webcamDeviceId || selectedCameraId}
 									onChange={(e) => {
-										const selectedDevice = micDevices.find((d) => d.deviceId === e.target.value);
-										setSelectedMicId(e.target.value);
-										setMicrophoneDeviceId(e.target.value);
-										setMicrophoneDeviceName(selectedDevice?.label);
+										const device = cameraDevices.find((item) => item.deviceId === e.target.value);
+										setSelectedCameraId(e.target.value);
+										setWebcamDeviceId(e.target.value);
+										setWebcamDeviceName(device?.label);
 									}}
-									className={`w-full appearance-none bg-white/5 text-white text-[11px] rounded-lg pl-2 pr-6 py-1 border border-white/10 outline-none hover:bg-white/10 transition-colors cursor-pointer ${!micExpanded ? "sr-only" : ""}`}
+									className="sr-only"
 								>
-									{micDevices.map((device) => (
-										<option key={device.deviceId} value={device.deviceId} className="bg-[#1c1c24]">
+									{cameraDevices.map((device) => (
+										<option key={device.deviceId} value={device.deviceId}>
 											{device.label}
 										</option>
 									))}
 								</select>
-								{micExpanded && (
-									<ChevronDown
-										size={12}
-										className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
-									/>
-								)}
-							</div>
-							<AudioLevelMeter
-								level={level}
-								className={`${micExpanded ? "w-16" : "w-8"} h-2 transition-all duration-300`}
-							/>
+							)}
 						</div>
-					)}
-
-					{/* Webcam selector */}
-					{showWebcamControls && (
-						<div
-							className={`flex h-9 items-center gap-2 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0c10]/90 px-3 py-1.5 shadow-[0_6px_16px_rgba(0,0,0,0.24)] backdrop-blur-2xl transition-all duration-300 ${!webcamExpanded ? "opacity-60 grayscale-[0.5]" : "opacity-100"}`}
-							onMouseEnter={() => setIsWebcamHovered(true)}
-							onMouseLeave={() => setIsWebcamHovered(false)}
-							onFocus={() => setIsWebcamFocused(true)}
-							onBlur={() => setIsWebcamFocused(false)}
-							style={{ width: webcamExpanded ? "240px" : "140px", transition: "width 300ms ease" }}
-						>
-							<div className="relative flex-1 min-w-0">
-								{!webcamExpanded && (
-									<div className="text-white/60 text-[10px] font-medium truncate">
-										{selectedCameraLabel}
-									</div>
-								)}
-								{webcamExpanded &&
-									(isCameraDevicesLoading ? (
-										<span className="text-white/40 text-[10px] italic">
-											{t("webcam.searching")}
-										</span>
-									) : cameraDevicesError ? (
-										<span className="text-white/40 text-[10px] italic">
-											{t("webcam.unavailable")}
-										</span>
-									) : cameraDevices.length === 0 ? (
-										<span className="text-white/40 text-[10px] italic">
-											{t("webcam.noneFound")}
-										</span>
-									) : (
-										<>
-											<select
-												value={webcamDeviceId || selectedCameraId}
-												onChange={(e) => {
-													const device = cameraDevices.find(
-														(item) => item.deviceId === e.target.value,
-													);
-													setSelectedCameraId(e.target.value);
-													setWebcamDeviceId(e.target.value);
-													setWebcamDeviceName(device?.label);
-												}}
-												className="w-full appearance-none bg-white/5 text-white text-[11px] rounded-lg pl-2 pr-6 py-1 border border-white/10 outline-none hover:bg-white/10 transition-colors cursor-pointer"
-											>
-												{cameraDevices.map((device) => (
-													<option
-														key={device.deviceId}
-														value={device.deviceId}
-														className="bg-[#1c1c24]"
-													>
-														{device.label}
-													</option>
-												))}
-											</select>
-											<ChevronDown
-												size={12}
-												className="absolute right-1.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
-											/>
-										</>
-									))}
-								{(!webcamExpanded || cameraDevices.length === 0) && (
-									<select
-										value={webcamDeviceId || selectedCameraId}
-										onChange={(e) => {
-											const device = cameraDevices.find((item) => item.deviceId === e.target.value);
-											setSelectedCameraId(e.target.value);
-											setWebcamDeviceId(e.target.value);
-											setWebcamDeviceName(device?.label);
-										}}
-										className="sr-only"
-									>
-										{cameraDevices.map((device) => (
-											<option key={device.deviceId} value={device.deviceId}>
-												{device.label}
-											</option>
-										))}
-									</select>
-								)}
-							</div>
-						</div>
-					)}
+					</div>
 				</div>
 			)}
 
@@ -790,7 +796,7 @@ export function LaunchWindow() {
 					if (isDraggingHudRef.current) {
 						return;
 					}
-					if (!isLanguageMenuOpen) {
+					if (!isLanguageMenuOpen && !isAudioMenuOpen) {
 						setHudMouseEventsEnabled(false);
 					}
 				}}
@@ -859,31 +865,22 @@ export function LaunchWindow() {
 					className={`${hudGroupClasses} ${trayLayout === "vertical" ? "flex-col py-1" : ""} ${styles.electronNoDrag}`}
 				>
 					<button
-						data-testid="launch-system-audio-button"
-						className={`${hudIconBtnClasses} ${systemAudioEnabled ? "drop-shadow-[0_0_4px_rgba(74,222,128,0.4)]" : ""}`}
-						onClick={() => !recording && setSystemAudioEnabled(!systemAudioEnabled)}
-						disabled={recording}
-						title={
-							systemAudioEnabled ? t("audio.disableSystemAudio") : t("audio.enableSystemAudio")
-						}
+						ref={audioTriggerRef}
+						data-testid="launch-audio-button"
+						type="button"
+						aria-label={t("audio.menu")}
+						aria-expanded={isAudioMenuOpen}
+						aria-haspopup="menu"
+						className={`${hudIconBtnClasses} ${audioEnabled ? "drop-shadow-[0_0_4px_rgba(74,222,128,0.4)]" : ""}`}
+						onClick={() => {
+							setIsAudioMenuOpen((open) => !open);
+							setIsLanguageMenuOpen(false);
+						}}
+						title={t("audio.menu")}
 					>
-						{systemAudioEnabled
+						{audioEnabled
 							? getIcon("volumeOn", "text-rose-400")
 							: getIcon("volumeOff", "text-white/40")}
-					</button>
-					<button
-						data-testid="launch-microphone-button"
-						className={`${hudIconBtnClasses} ${microphoneEnabled ? "drop-shadow-[0_0_4px_rgba(74,222,128,0.4)]" : ""}`}
-						onClick={toggleMicrophone}
-						disabled={recording}
-						title={microphoneEnabled ? t("audio.disableMicrophone") : t("audio.enableMicrophone")}
-						onPointerDown={() => {
-							setRecordPointerDownCount((count) => count + 1);
-						}}
-					>
-						{microphoneEnabled
-							? getIcon("micOn", "text-rose-400")
-							: getIcon("micOff", "text-white/40")}
 					</button>
 					<button
 						data-testid="launch-webcam-button"
@@ -926,6 +923,104 @@ export function LaunchWindow() {
 						</button>
 					)}
 				</div>
+
+				{isAudioMenuOpen
+					? createPortal(
+							<div
+								ref={setAudioMenuPanelEl}
+								data-hud-interactive="true"
+								role="menu"
+								className={`${styles.languageMenuPanel} ${styles.languageMenuScroll} ${styles.electronNoDrag}`}
+								style={
+									{
+										WebkitAppRegion: "no-drag",
+										pointerEvents: "auto",
+										right: `${audioMenuStyle.right}px`,
+										top: `${audioMenuStyle.top}px`,
+										maxHeight: `${audioMenuStyle.maxHeight}px`,
+										width: "16rem",
+									} as React.CSSProperties
+								}
+								onPointerDown={(event) => event.stopPropagation()}
+								onPointerEnter={() => setHudMouseEventsEnabled(true)}
+								onPointerMove={() => setHudMouseEventsEnabled(true)}
+								onWheel={(event) => {
+									setHudMouseEventsEnabled(true);
+									event.stopPropagation();
+								}}
+							>
+								<div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase text-white/35">
+									{t("audio.menu")}
+								</div>
+								<div className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-white/80 hover:bg-white/[0.055]">
+									<div className="flex min-w-0 items-center gap-2">
+										<Volume2 size={14} className="shrink-0 text-white/55" />
+										<span className="truncate text-[11px] font-medium">
+											{t("audio.systemAudio")}
+										</span>
+									</div>
+									<Switch
+										data-testid="launch-system-audio-switch"
+										checked={systemAudioEnabled}
+										disabled={recording}
+										onCheckedChange={setSystemAudioEnabled}
+										aria-label={t("audio.systemAudio")}
+									/>
+								</div>
+								<div className="mt-1 flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-white/80 hover:bg-white/[0.055]">
+									<div className="flex min-w-0 items-center gap-2">
+										<Mic size={14} className="shrink-0 text-white/55" />
+										<span className="truncate text-[11px] font-medium">
+											{t("audio.microphone")}
+										</span>
+									</div>
+									<Switch
+										data-testid="launch-microphone-switch"
+										checked={microphoneEnabled}
+										disabled={recording}
+										onCheckedChange={setMicrophoneEnabled}
+										aria-label={t("audio.microphone")}
+									/>
+								</div>
+								{microphoneEnabled ? (
+									<div className="mt-2 border-t border-white/10 pt-2">
+										<div className="px-2 pb-1 text-[10px] font-semibold uppercase text-white/35">
+											{t("audio.microphoneDevice")}
+										</div>
+										<div className="max-h-32 overflow-y-auto pr-1">
+											{micDevices.length > 0 ? (
+												micDevices.map((device) => {
+													const selected =
+														device.deviceId === (microphoneDeviceId || selectedMicId);
+													return (
+														<button
+															key={device.deviceId}
+															type="button"
+															role="menuitemradio"
+															aria-checked={selected}
+															onClick={() => selectMicrophoneDevice(device.deviceId)}
+															className={`${styles.languageMenuItem} ${selected ? styles.languageMenuItemActive : ""}`}
+														>
+															<span className="truncate">{device.label}</span>
+															{selected ? <Check size={11} className="text-white/85" /> : null}
+														</button>
+													);
+												})
+											) : (
+												<div className="px-2 py-1.5 text-[11px] text-white/45">
+													{t("audio.noMicrophones")}
+												</div>
+											)}
+										</div>
+										<div className="mt-2 px-2">
+											<AudioLevelMeter level={level} className="h-2 w-full" />
+										</div>
+									</div>
+								) : null}
+							</div>,
+							document.body,
+						)
+					: null}
 
 				{/* Record/Stop group */}
 				<div
@@ -1026,7 +1121,10 @@ export function LaunchWindow() {
 							aria-label={t("language")}
 							aria-expanded={isLanguageMenuOpen}
 							aria-haspopup="menu"
-							onClick={() => setIsLanguageMenuOpen((open) => !open)}
+							onClick={() => {
+								setIsLanguageMenuOpen((open) => !open);
+								setIsAudioMenuOpen(false);
+							}}
 							title={activeLanguageLabel}
 							className={`flex h-8 items-center rounded-lg border border-white/10 bg-white/[0.045] text-white/85 shadow-none transition-colors hover:bg-white/10 ${
 								trayLayout === "vertical" ? "w-8 justify-center px-0" : "gap-1.5 px-2"

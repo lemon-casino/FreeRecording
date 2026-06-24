@@ -13,6 +13,11 @@
 		"chooseRecordingDirectory": "Choose recording folder"
 	},
 	"audio": {
+		"menu": "الصوت",
+		"systemAudio": "صوت النظام",
+		"microphone": "الميكروفون",
+		"microphoneDevice": "جهاز الميكروفون",
+		"noMicrophones": "لم يتم العثور على ميكروفونات",
 		"enableSystemAudio": "تفعيل صوت النظام",
 		"disableSystemAudio": "تعطيل صوت النظام",
 		"enableMicrophone": "تفعيل الميكروفون",

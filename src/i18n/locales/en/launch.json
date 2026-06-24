@@ -14,6 +14,11 @@
 		"openStudio": "Open Studio"
 	},
 	"audio": {
+		"menu": "Audio",
+		"systemAudio": "System audio",
+		"microphone": "Microphone",
+		"microphoneDevice": "Microphone device",
+		"noMicrophones": "No microphones found",
 		"enableSystemAudio": "Enable system audio",
 		"disableSystemAudio": "Disable system audio",
 		"enableMicrophone": "Enable microphone",
