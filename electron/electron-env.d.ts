@@ -119,6 +119,9 @@ interface Window {
 			settings?: import("../src/lib/appSettings").AppSettings;
 			error?: string;
 		}>;
+		onAppSettingsChanged: (
+			callback: (settings: import("../src/lib/appSettings").AppSettings) => void,
+		) => () => void;
 		pickAppSettingsDirectory: (kind: "recording" | "project" | "cache") => Promise<{
 			success: boolean;
 			path?: string;
@@ -367,6 +370,12 @@ interface Window {
 		onMenuLoadProject: (callback: () => void) => () => void;
 		onMenuSaveProject: (callback: () => void) => () => void;
 		onMenuSaveProjectAs: (callback: () => void) => () => void;
+		snapHudOverlayToNearestEdge: () => Promise<{
+			edge: "top" | "right" | "bottom" | "left";
+		}>;
+		onHudOverlayEdgeChanged: (
+			callback: (edge: "top" | "right" | "bottom" | "left") => void,
+		) => () => void;
 		getPlatform: () => Promise<string>;
 		revealInFolder: (
 			filePath: string,

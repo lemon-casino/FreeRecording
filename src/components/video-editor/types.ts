@@ -395,7 +395,7 @@ export const SPEED_OPTIONS: Array<{ speed: PlaybackSpeed; label: string }> = [
 	{ speed: 5, label: "5×" },
 ];
 
-export const DEFAULT_PLAYBACK_SPEED: PlaybackSpeed = 1.5;
+export const DEFAULT_PLAYBACK_SPEED: PlaybackSpeed = 1;
 
 export const ZOOM_DEPTH_SCALES: Record<ZoomDepth, number> = {
 	1: 1.25,

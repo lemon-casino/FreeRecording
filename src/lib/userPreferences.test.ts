@@ -98,9 +98,15 @@ describe("user preferences", () => {
 		expect(loadUserPreferences().trayLayout).toBe("vertical");
 	});
 
+	it("persists the smart tray layout preference", () => {
+		saveUserPreferences({ trayLayout: "auto" });
+
+		expect(loadUserPreferences().trayLayout).toBe("auto");
+	});
+
 	it("falls back to the default tray layout for invalid stored values", () => {
 		localStorage.setItem("openscreen_user_preferences", JSON.stringify({ trayLayout: "diagonal" }));
 
-		expect(loadUserPreferences().trayLayout).toBe("horizontal");
+		expect(loadUserPreferences().trayLayout).toBe(DEFAULT_PREFS.trayLayout);
 	});
 });

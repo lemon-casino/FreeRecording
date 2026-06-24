@@ -29,6 +29,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	moveHudOverlayBy: (deltaX: number, deltaY: number) => {
 		ipcRenderer.send("hud-overlay-move-by", deltaX, deltaY);
 	},
+	snapHudOverlayToNearestEdge: () => {
+		return ipcRenderer.invoke("hud-overlay-snap-to-nearest-edge");
+	},
+	onHudOverlayEdgeChanged: (callback: (edge: "top" | "right" | "bottom" | "left") => void) => {
+		const listener = (
+			_event: Electron.IpcRendererEvent,
+			edge: "top" | "right" | "bottom" | "left",
+		) => callback(edge);
+		ipcRenderer.on("hud-overlay-edge-changed", listener);
+		return () => ipcRenderer.removeListener("hud-overlay-edge-changed", listener);
+	},
 	setHudOverlaySize: (width: number, height: number) => {
 		ipcRenderer.send("hud-overlay-set-size", width, height);
 	},
@@ -97,6 +108,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	},
 	saveAppSettings: (partial: unknown) => {
 		return ipcRenderer.invoke("save-app-settings", partial);
+	},
+	onAppSettingsChanged: (
+		callback: (settings: import("../src/lib/appSettings").AppSettings) => void,
+	) => {
+		const listener = (
+			_event: Electron.IpcRendererEvent,
+			settings: import("../src/lib/appSettings").AppSettings,
+		) => callback(settings);
+		ipcRenderer.on("app-settings-changed", listener);
+		return () => ipcRenderer.removeListener("app-settings-changed", listener);
 	},
 	pickAppSettingsDirectory: (kind: "recording" | "project" | "cache") => {
 		return ipcRenderer.invoke("pick-app-settings-directory", kind);

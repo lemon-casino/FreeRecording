@@ -30,7 +30,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n, useScopedT } from "@/contexts/I18nContext";
 import { getAvailableLocales, getLocaleName } from "@/i18n/loader";
-import { loadUserPreferences, saveUserPreferences } from "@/lib/userPreferences";
+import {
+	loadUserPreferences,
+	saveUserPreferences,
+	type TrayLayoutPreference,
+} from "@/lib/userPreferences";
 import { nativeBridgeClient } from "@/native";
 import { useAudioLevelMeter } from "../../hooks/useAudioLevelMeter";
 import { useCameraDevices } from "../../hooks/useCameraDevices";
@@ -73,6 +77,8 @@ const ICON_CONFIG = {
 } as const;
 
 type IconName = keyof typeof ICON_CONFIG;
+type HudOverlayEdge = "top" | "right" | "bottom" | "left";
+type ResolvedTrayLayout = "horizontal" | "vertical";
 
 /** Renders the configured icon for a HUD control. */
 function getIcon(name: IconName, className?: string) {
@@ -139,16 +145,26 @@ export function LaunchWindow() {
 	const [isWebcamFocused, setIsWebcamFocused] = useState(false);
 	const webcamExpanded = isWebcamHovered || isWebcamFocused;
 	const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
-	const [trayLayout, setTrayLayout] = useState<"horizontal" | "vertical">(
+	const [trayLayoutPreference, setTrayLayoutPreference] = useState<TrayLayoutPreference>(
 		() => loadUserPreferences().trayLayout,
 	);
+	const [hudEdge, setHudEdge] = useState<HudOverlayEdge>("bottom");
+	const trayLayout: ResolvedTrayLayout =
+		trayLayoutPreference === "auto"
+			? hudEdge === "left" || hudEdge === "right"
+				? "vertical"
+				: "horizontal"
+			: trayLayoutPreference;
+	const isSmartTrayLayout = trayLayoutPreference === "auto";
 	const [supportsCursorModeToggle, setSupportsCursorModeToggle] = useState(false);
 	const [recordingDirectoryPath, setRecordingDirectoryPath] = useState("");
 	const [recordingDirectoryWritable, setRecordingDirectoryWritable] = useState(true);
+	const [showOpenStudioShortcut, setShowOpenStudioShortcut] = useState(true);
 	const languageTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const languageMenuPanelRef = useRef<HTMLDivElement | null>(null);
 	const hudBarRef = useRef<HTMLDivElement | null>(null);
 	const deviceSelectorRef = useRef<HTMLDivElement | null>(null);
+	const isDraggingHudRef = useRef(false);
 	// Measured bar height, anchors the popups above the tall vertical tray so they don't overlap it.
 	const [hudBarHeight, setHudBarHeight] = useState(0);
 	const [languageMenuStyle, setLanguageMenuStyle] = useState<{
@@ -234,6 +250,24 @@ export function LaunchWindow() {
 	useEffect(() => {
 		void refreshRecordingDirectory();
 	}, [refreshRecordingDirectory]);
+
+	const refreshOpenStudioShortcutVisibility = useCallback(async () => {
+		try {
+			const result = await window.electronAPI?.getAppSettings?.();
+			if (result?.success && result.settings) {
+				setShowOpenStudioShortcut(result.settings.postRecordingOpenStudio);
+			}
+		} catch (error) {
+			console.warn("Failed to load Open Studio shortcut setting:", error);
+		}
+	}, []);
+
+	useEffect(() => {
+		void refreshOpenStudioShortcutVisibility();
+		return window.electronAPI?.onAppSettingsChanged?.((settings) => {
+			setShowOpenStudioShortcut(settings.postRecordingOpenStudio);
+		});
+	}, [refreshOpenStudioShortcutVisibility]);
 
 	useEffect(() => {
 		if (selectedMicId && selectedMicId !== "default") {
@@ -349,6 +383,7 @@ export function LaunchWindow() {
 	// preserves) so fixed bottom/centre offsets keep this stable and it doesn't oscillate.
 	const lastHudSizeRef = useRef({ width: 0, height: 0 });
 	const measureHudSize = useCallback(() => {
+		if (isDraggingHudRef.current) return;
 		const barEl = hudBarRef.current;
 		if (!barEl || !window.electronAPI?.setHudOverlaySize) return;
 
@@ -464,6 +499,12 @@ export function LaunchWindow() {
 		setHudMouseEventsEnabled(isLanguageMenuOpen);
 	}, [isLanguageMenuOpen, setHudMouseEventsEnabled]);
 
+	useEffect(() => {
+		return window.electronAPI?.onHudOverlayEdgeChanged?.((edge) => {
+			setHudEdge(edge);
+		});
+	}, []);
+
 	const [selectedSource, setSelectedSource] = useState("Screen");
 	const [, setRecordPointerDownCount] = useState(0);
 
@@ -506,10 +547,15 @@ export function LaunchWindow() {
 			window.electronAPI.hudOverlayClose();
 		}
 	};
-	/** Switches the HUD between horizontal and vertical tray layouts. */
+	/** Switches the HUD between smart, horizontal, and vertical tray layouts. */
 	const toggleTrayLayout = () => {
-		const nextLayout = trayLayout === "horizontal" ? "vertical" : "horizontal";
-		setTrayLayout(nextLayout);
+		const nextLayout: TrayLayoutPreference =
+			trayLayoutPreference === "auto"
+				? "horizontal"
+				: trayLayoutPreference === "horizontal"
+					? "vertical"
+					: "auto";
+		setTrayLayoutPreference(nextLayout);
 		saveUserPreferences({ trayLayout: nextLayout });
 	};
 
@@ -524,6 +570,7 @@ export function LaunchWindow() {
 		event.stopPropagation();
 		setHudMouseEventsEnabled(true);
 		event.currentTarget.setPointerCapture(event.pointerId);
+		isDraggingHudRef.current = true;
 		dragLastPositionRef.current = { x: event.screenX, y: event.screenY };
 	};
 	const handleHudDragPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -536,9 +583,16 @@ export function LaunchWindow() {
 	};
 	const handleHudDragPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
 		dragLastPositionRef.current = null;
+		isDraggingHudRef.current = false;
 		if (event.currentTarget.hasPointerCapture(event.pointerId)) {
 			event.currentTarget.releasePointerCapture(event.pointerId);
 		}
+		void window.electronAPI?.snapHudOverlayToNearestEdge?.().then((result) => {
+			if (result?.edge) {
+				setHudEdge(result.edge);
+			}
+			measureHudSize();
+		});
 		setHudMouseEventsEnabled(false);
 	};
 
@@ -734,21 +788,25 @@ export function LaunchWindow() {
 
 				<Tooltip
 					content={
-						trayLayout === "horizontal"
-							? t("tooltips.useVerticalTray")
-							: t("tooltips.useHorizontalTray")
+						isSmartTrayLayout
+							? "智能托盘：贴左右边竖向，贴上下边横向"
+							: trayLayout === "horizontal"
+								? t("tooltips.useVerticalTray")
+								: t("tooltips.useHorizontalTray")
 					}
 				>
 					<button
 						data-testid="launch-tray-layout-button"
 						type="button"
 						aria-label={
-							trayLayout === "horizontal"
-								? t("tooltips.useVerticalTray")
-								: t("tooltips.useHorizontalTray")
+							isSmartTrayLayout
+								? "智能托盘布局"
+								: trayLayout === "horizontal"
+									? t("tooltips.useVerticalTray")
+									: t("tooltips.useHorizontalTray")
 						}
-						aria-pressed={trayLayout === "vertical"}
-						className={`${hudIconBtnClasses} ${styles.electronNoDrag}`}
+						aria-pressed={isSmartTrayLayout || trayLayout === "vertical"}
+						className={`${hudIconBtnClasses} ${isSmartTrayLayout ? "bg-white/10 ring-1 ring-white/15" : ""} ${styles.electronNoDrag}`}
 						onClick={toggleTrayLayout}
 					>
 						{trayLayout === "horizontal" ? (
@@ -873,9 +931,9 @@ export function LaunchWindow() {
 					</button>
 					{recording && (
 						<span
-							className={`block w-[38px] shrink-0 text-center text-xs font-semibold tabular-nums ${
-								paused ? "text-amber-400" : "text-red-400"
-							}`}
+							className={`block shrink-0 rounded-full text-center text-xs font-semibold tabular-nums ${
+								trayLayout === "vertical" ? "w-[38px]" : "w-[50px] bg-white/[0.045] px-1.5 py-1"
+							} ${paused ? "text-amber-400" : "text-red-400"}`}
 						>
 							{formatTimePadded(elapsedSeconds)}
 						</span>
@@ -912,29 +970,29 @@ export function LaunchWindow() {
 				)}
 
 				{!recording && (
-					<>
-						<Tooltip content={recordingDirectoryTooltip}>
-							<button
-								data-testid="launch-recording-directory-button"
-								type="button"
-								aria-label={t("tooltips.chooseRecordingDirectory")}
-								title={recordingDirectoryPath}
-								className={`${hudIconBtnClasses} ${styles.electronNoDrag}`}
-								onClick={pickRecordingDirectory}
-							>
-								{getIcon("folder", recordingDirectoryWritable ? "text-white/60" : "text-red-400")}
-							</button>
-						</Tooltip>
-						<Tooltip content={t("tooltips.openStudio")}>
-							<button
-								data-testid="launch-open-studio-button"
-								className={`${hudIconBtnClasses} ${styles.electronNoDrag}`}
-								onClick={() => window.electronAPI.switchToEditor()}
-							>
-								<Clapperboard size={ICON_SIZE} className="text-white/60" />
-							</button>
-						</Tooltip>
-					</>
+					<Tooltip content={recordingDirectoryTooltip}>
+						<button
+							data-testid="launch-recording-directory-button"
+							type="button"
+							aria-label={t("tooltips.chooseRecordingDirectory")}
+							title={recordingDirectoryPath}
+							className={`${hudIconBtnClasses} ${styles.electronNoDrag}`}
+							onClick={pickRecordingDirectory}
+						>
+							{getIcon("folder", recordingDirectoryWritable ? "text-white/60" : "text-red-400")}
+						</button>
+					</Tooltip>
+				)}
+				{!recording && showOpenStudioShortcut && (
+					<Tooltip content={t("tooltips.openStudio")}>
+						<button
+							data-testid="launch-open-studio-button"
+							className={`${hudIconBtnClasses} ${styles.electronNoDrag}`}
+							onClick={() => window.electronAPI.switchToEditor()}
+						>
+							<Clapperboard size={ICON_SIZE} className="text-white/60" />
+						</button>
+					</Tooltip>
 				)}
 
 				{/* Right sidebar controls */}

@@ -6,6 +6,7 @@ import type { ExportFormat, ExportQuality } from "@/lib/exporter";
 import type { AspectRatio } from "@/utils/aspectRatioUtils";
 
 const PREFS_KEY = "openscreen_user_preferences";
+export type TrayLayoutPreference = "auto" | "horizontal" | "vertical";
 
 const VALID_ASPECT_RATIOS: readonly string[] = [
 	"16:9",
@@ -32,7 +33,7 @@ export interface UserPreferences {
 	/** Folder of the most recently opened project, if any */
 	projectFolder: string | null;
 	/** Recording HUD control layout */
-	trayLayout: "horizontal" | "vertical";
+	trayLayout: TrayLayoutPreference;
 }
 
 export const DEFAULT_PREFS: UserPreferences = {
@@ -42,7 +43,7 @@ export const DEFAULT_PREFS: UserPreferences = {
 	exportFormat: DEFAULT_EXPORT_SETTINGS.format,
 	exportFolder: null,
 	projectFolder: null,
-	trayLayout: "horizontal",
+	trayLayout: "auto",
 };
 
 /** Parses stored preferences without throwing on malformed JSON. */
@@ -96,7 +97,7 @@ export function loadUserPreferences(): UserPreferences {
 				? raw.projectFolder
 				: DEFAULT_PREFS.projectFolder,
 		trayLayout:
-			raw.trayLayout === "horizontal" || raw.trayLayout === "vertical"
+			raw.trayLayout === "auto" || raw.trayLayout === "horizontal" || raw.trayLayout === "vertical"
 				? raw.trayLayout
 				: DEFAULT_PREFS.trayLayout,
 	};

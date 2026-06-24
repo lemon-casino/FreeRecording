@@ -430,6 +430,14 @@ async function saveAppSettings(partial: Partial<AppSettings>): Promise<AppSettin
 	return next;
 }
 
+function broadcastAppSettingsChanged(settings: AppSettings) {
+	for (const window of BrowserWindow.getAllWindows()) {
+		if (!window.isDestroyed()) {
+			window.webContents.send("app-settings-changed", settings);
+		}
+	}
+}
+
 async function getCacheRootDir(): Promise<string> {
 	return path.join((await loadAppSettings()).cacheDirectory, MANAGED_CACHE_DIR_NAME);
 }
@@ -4160,6 +4168,7 @@ export function registerIpcHandlers(
 			}
 
 			const settings = await saveAppSettings({ recordingDirectory: result.path });
+			broadcastAppSettingsChanged(settings);
 			return { success: true, path: settings.recordingDirectory, isDefault: false, writable: true };
 		} catch (error) {
 			return {
@@ -4185,6 +4194,7 @@ export function registerIpcHandlers(
 	ipcMain.handle("save-app-settings", async (_, partial: Partial<AppSettings>) => {
 		try {
 			const settings = await saveAppSettings(partial);
+			broadcastAppSettingsChanged(settings);
 			return { success: true, settings };
 		} catch (error) {
 			return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -4217,6 +4227,7 @@ export function registerIpcHandlers(
 						? { cacheDirectory: result.path }
 						: { recordingDirectory: result.path };
 			const nextSettings = await saveAppSettings(partial);
+			broadcastAppSettingsChanged(nextSettings);
 			return { success: true, path: result.path, settings: nextSettings };
 		} catch (error) {
 			return { success: false, error: error instanceof Error ? error.message : String(error) };

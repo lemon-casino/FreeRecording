@@ -17,6 +17,80 @@ const ASSET_BASE_DIR = process.defaultApp
 const ASSET_BASE_URL_ARG = `--asset-base-url=${pathToFileURL(`${ASSET_BASE_DIR}${path.sep}`).toString()}`;
 
 let hudOverlayWindow: BrowserWindow | null = null;
+type HudOverlayEdge = "top" | "right" | "bottom" | "left";
+
+const HUD_OVERLAY_EDGE_MARGIN = 8;
+
+let hudOverlayPinnedEdge: HudOverlayEdge = "bottom";
+
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
+}
+
+function getNearestHudOverlayEdge(bounds: Electron.Rectangle): HudOverlayEdge {
+	const { workArea } = screen.getDisplayMatching(bounds);
+	const distances: Record<HudOverlayEdge, number> = {
+		top: Math.abs(bounds.y - workArea.y),
+		right: Math.abs(workArea.x + workArea.width - (bounds.x + bounds.width)),
+		bottom: Math.abs(workArea.y + workArea.height - (bounds.y + bounds.height)),
+		left: Math.abs(bounds.x - workArea.x),
+	};
+
+	return (Object.entries(distances) as Array<[HudOverlayEdge, number]>).reduce((best, item) =>
+		item[1] < best[1] ? item : best,
+	)[0];
+}
+
+function notifyHudOverlayEdge(edge = hudOverlayPinnedEdge) {
+	if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
+		hudOverlayWindow.webContents.send("hud-overlay-edge-changed", edge);
+	}
+}
+
+function getBoundsPinnedToEdge(
+	bounds: Electron.Rectangle,
+	width: number,
+	height: number,
+	edge: HudOverlayEdge,
+): Electron.Rectangle {
+	const { workArea } = screen.getDisplayMatching(bounds);
+	const maxX = workArea.x + workArea.width - width;
+	const maxY = workArea.y + workArea.height - height;
+	const centerX = bounds.x + bounds.width / 2;
+	const centerY = bounds.y + bounds.height / 2;
+	const bottomY = Math.min(bounds.y + bounds.height, workArea.y + workArea.height);
+
+	switch (edge) {
+		case "left":
+			return {
+				x: clamp(workArea.x + HUD_OVERLAY_EDGE_MARGIN, workArea.x, maxX),
+				y: clamp(Math.round(centerY - height / 2), workArea.y, maxY),
+				width,
+				height,
+			};
+		case "right":
+			return {
+				x: clamp(workArea.x + workArea.width - width - HUD_OVERLAY_EDGE_MARGIN, workArea.x, maxX),
+				y: clamp(Math.round(centerY - height / 2), workArea.y, maxY),
+				width,
+				height,
+			};
+		case "top":
+			return {
+				x: clamp(Math.round(centerX - width / 2), workArea.x, maxX),
+				y: clamp(workArea.y + HUD_OVERLAY_EDGE_MARGIN, workArea.y, maxY),
+				width,
+				height,
+			};
+		case "bottom":
+			return {
+				x: clamp(Math.round(centerX - width / 2), workArea.x, maxX),
+				y: clamp(Math.round(bottomY - height), workArea.y, maxY),
+				width,
+				height,
+			};
+	}
+}
 
 ipcMain.on("hud-overlay-hide", () => {
 	if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
@@ -44,6 +118,22 @@ ipcMain.on("hud-overlay-move-by", (_event, deltaX: number, deltaY: number) => {
 	hudOverlayWindow.setPosition(Math.round(x + deltaX), Math.round(y + deltaY), false);
 });
 
+ipcMain.handle("hud-overlay-snap-to-nearest-edge", () => {
+	if (!hudOverlayWindow || hudOverlayWindow.isDestroyed()) {
+		return { edge: hudOverlayPinnedEdge };
+	}
+
+	const bounds = hudOverlayWindow.getBounds();
+	const edge = getNearestHudOverlayEdge(bounds);
+	hudOverlayPinnedEdge = edge;
+	hudOverlayWindow.setBounds(
+		getBoundsPinnedToEdge(bounds, bounds.width, bounds.height, edge),
+		false,
+	);
+	notifyHudOverlayEdge(edge);
+	return { edge };
+});
+
 // Resize the HUD to fit its rendered content. Anchored by its bottom-centre so it
 // stays where the user dragged it while only growing/shrinking, which lets the
 // vertical tray layout grow tall instead of scrolling inside a fixed window.
@@ -69,23 +159,10 @@ ipcMain.on("hud-overlay-set-size", (_event, width: number, height: number) => {
 		return;
 	}
 
-	const centerX = bounds.x + bounds.width / 2;
-	const bottomY = Math.min(bounds.y + bounds.height, workArea.y + workArea.height);
-	const nextX = Math.min(
-		workArea.x + workArea.width - nextWidth,
-		Math.max(workArea.x, Math.round(centerX - nextWidth / 2)),
+	hudOverlayWindow.setBounds(
+		getBoundsPinnedToEdge(bounds, nextWidth, nextHeight, hudOverlayPinnedEdge),
 	);
-	const nextY = Math.min(
-		workArea.y + workArea.height - nextHeight,
-		Math.max(workArea.y, Math.round(bottomY - nextHeight)),
-	);
-
-	hudOverlayWindow.setBounds({
-		x: nextX,
-		y: nextY,
-		width: nextWidth,
-		height: nextHeight,
-	});
+	notifyHudOverlayEdge();
 });
 
 /**
@@ -148,6 +225,7 @@ export function createHudOverlayWindow(): BrowserWindow {
 
 	win.webContents.on("did-finish-load", () => {
 		win?.webContents.send("main-process-message", new Date().toLocaleString());
+		notifyHudOverlayEdge();
 	});
 
 	hudOverlayWindow = win;
