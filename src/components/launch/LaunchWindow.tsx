@@ -580,17 +580,21 @@ export function LaunchWindow() {
 	const handleHudDragPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
 		const wasDragging = isDraggingHudRef.current;
 		isDraggingHudRef.current = false;
-		window.electronAPI?.endHudOverlayDrag?.();
 		if (event.currentTarget.hasPointerCapture(event.pointerId)) {
 			event.currentTarget.releasePointerCapture(event.pointerId);
 		}
 		if (!wasDragging) return;
-		void window.electronAPI?.snapHudOverlayToNearestEdge?.().then((result) => {
-			if (result?.edge) {
-				setHudEdge(result.edge);
-			}
-			measureHudSize();
-		});
+		void window.electronAPI
+			?.snapHudOverlayToNearestEdge?.()
+			.then((result) => {
+				if (result?.edge) {
+					setHudEdge(result.edge);
+				}
+				measureHudSize();
+			})
+			.finally(() => {
+				window.electronAPI?.endHudOverlayDrag?.();
+			});
 		setHudMouseEventsEnabled(false);
 	};
 	const hudBarPositionClass =
@@ -606,8 +610,12 @@ export function LaunchWindow() {
 		// Avoid w-screen/h-screen: 100vw can exceed the inner layout width when scrollbars
 		// affect the viewport (Windows), causing a horizontal scrollbar (issue #305).
 		<div
-			className={`h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-transparent ${styles.electronDrag}`}
+			className="h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-transparent"
 			onPointerMove={(event) => {
+				if (isDraggingHudRef.current) {
+					setHudMouseEventsEnabled(true);
+					return;
+				}
 				const target = event.target as HTMLElement | null;
 				const shouldCapture =
 					isLanguageMenuOpen || Boolean(target?.closest("[data-hud-interactive='true']"));

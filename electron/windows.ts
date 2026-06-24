@@ -185,7 +185,6 @@ ipcMain.handle("hud-overlay-snap-to-nearest-edge", () => {
 		return { edge: hudOverlayPinnedEdge };
 	}
 
-	hudOverlayDragState = null;
 	const bounds = hudOverlayWindow.getBounds();
 	const cursor = screen.getCursorScreenPoint();
 	const edge = getNearestHudOverlayEdgeToPoint(cursor);
@@ -194,17 +193,19 @@ ipcMain.handle("hud-overlay-snap-to-nearest-edge", () => {
 		getBoundsPinnedToPointDisplayEdge(cursor, bounds.width, bounds.height, edge),
 		false,
 	);
+	hudOverlayDragState = null;
 	notifyHudOverlayEdge(edge);
 	return { edge };
 });
 
-// Resize the HUD to fit its rendered content. Anchored by its bottom-centre so it
-// stays where the user dragged it while only growing/shrinking, which lets the
-// vertical tray layout grow tall instead of scrolling inside a fixed window.
+// Resize the HUD to fit its rendered content. During a pointer drag, this is
+// deliberately frozen: late ResizeObserver messages must not re-anchor the
+// window while the user is still holding it.
 ipcMain.on("hud-overlay-set-size", (_event, width: number, height: number) => {
 	if (
 		!hudOverlayWindow ||
 		hudOverlayWindow.isDestroyed() ||
+		hudOverlayDragState ||
 		!Number.isFinite(width) ||
 		!Number.isFinite(height)
 	) {
