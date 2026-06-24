@@ -29,10 +29,16 @@ export default function App() {
 		}
 
 		if (type === "hud-overlay" || type === "source-selector" || type === "countdown-overlay") {
+			document.documentElement.classList.add("transparent-window");
+			document.body.classList.add("transparent-window");
+			document.getElementById("root")?.classList.add("transparent-window");
 			document.body.style.background = "transparent";
 			document.documentElement.style.background = "transparent";
 			document.getElementById("root")?.style.setProperty("background", "transparent");
 		} else if (type === "settings") {
+			document.documentElement.classList.remove("transparent-window");
+			document.body.classList.remove("transparent-window");
+			document.getElementById("root")?.classList.remove("transparent-window");
 			document.body.style.background = "#08090c";
 			document.documentElement.style.background = "#08090c";
 			document.getElementById("root")?.style.setProperty("background", "#08090c");

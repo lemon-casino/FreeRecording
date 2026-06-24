@@ -10,6 +10,9 @@ if (
 	windowType === "source-selector" ||
 	windowType === "countdown-overlay"
 ) {
+	document.documentElement.classList.add("transparent-window");
+	document.body.classList.add("transparent-window");
+	document.getElementById("root")?.classList.add("transparent-window");
 	document.body.style.background = "transparent";
 	document.documentElement.style.background = "transparent";
 	document.getElementById("root")?.style.setProperty("background", "transparent");
