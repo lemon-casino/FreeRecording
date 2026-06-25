@@ -130,7 +130,6 @@ type UseScreenRecorderReturn = {
 	setWebcamEnabled: (enabled: boolean) => Promise<boolean>;
 	webcamSettings: LaunchWebcamSettings;
 	setWebcamSettings: (partial: Partial<LaunchWebcamSettings>) => void;
-	webcamPreviewStream: MediaStream | null;
 	cursorCaptureMode: CursorCaptureMode;
 	setCursorCaptureMode: (mode: CursorCaptureMode) => void;
 };
@@ -213,7 +212,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const [webcamSettings, setWebcamSettingsState] = useState<LaunchWebcamSettings>(
 		() => loadUserPreferences().webcamSettings,
 	);
-	const [webcamPreviewStream, setWebcamPreviewStream] = useState<MediaStream | null>(null);
 	const [cursorCaptureMode, setCursorCaptureModeState] =
 		useState<CursorCaptureMode>("editable-overlay");
 	const cursorCaptureModeRef = useRef<CursorCaptureMode>("editable-overlay");
@@ -236,8 +234,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const restarting = useRef(false);
 	const countdownRunId = useRef(0);
 	const [countdownActive, setCountdownActive] = useState(false);
-	const webcamReady = useRef(false);
-	const webcamAcquireId = useRef(0);
 	const canPauseRecording =
 		recording &&
 		Boolean(
@@ -293,27 +289,19 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			microphoneStream.current.getTracks().forEach((track) => track.stop());
 			microphoneStream.current = null;
 		}
+		if (webcamStream.current) {
+			webcamStream.current.getTracks().forEach((track) => {
+				track.onended = null;
+				track.stop();
+			});
+			webcamStream.current = null;
+		}
 		if (mixingContext.current) {
 			mixingContext.current.close().catch(() => {
 				// Ignore close errors during recorder teardown.
 			});
 			mixingContext.current = null;
 		}
-	}, []);
-
-	const stopWebcamPreviewStream = useCallback(() => {
-		if (!webcamStream.current) {
-			return;
-		}
-
-		webcamAcquireId.current++;
-		webcamStream.current.getTracks().forEach((track) => {
-			track.onended = null;
-			track.stop();
-		});
-		webcamStream.current = null;
-		setWebcamPreviewStream(null);
-		webcamReady.current = false;
 	}, []);
 
 	const setWebcamEnabled = useCallback(
@@ -369,91 +357,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			cancelled = true;
 		};
 	}, [setCursorCaptureMode, setWebcamEnabled]);
-
-	useEffect(() => {
-		if (!webcamEnabled) return;
-
-		let cancelled = false;
-		let acquiredStream: MediaStream | null = null;
-		const thisAcquireId = ++webcamAcquireId.current;
-		webcamReady.current = false;
-
-		const acquire = async () => {
-			try {
-				const videoConstraints: MediaTrackConstraints = {
-					...(webcamDeviceId ? { deviceId: { exact: webcamDeviceId } } : {}),
-					width: { ideal: webcamSettings.width },
-					height: { ideal: webcamSettings.height },
-					frameRate: { ideal: webcamSettings.fps, max: webcamSettings.fps },
-				};
-				const stream = await navigator.mediaDevices.getUserMedia({
-					audio: false,
-					video: videoConstraints,
-				});
-
-				if (cancelled || thisAcquireId !== webcamAcquireId.current) {
-					stream.getTracks().forEach((track) => {
-						track.onended = null;
-						track.stop();
-					});
-					return;
-				}
-
-				acquiredStream = stream;
-				stream.getVideoTracks().forEach((track) => {
-					track.onended = () => {
-						webcamStream.current = null;
-						setWebcamPreviewStream(null);
-						if (!restarting.current) {
-							setWebcamEnabledState(false);
-							toast.error(t("recording.cameraDisconnected"));
-						}
-					};
-				});
-				webcamStream.current = stream;
-				setWebcamPreviewStream(stream);
-				webcamReady.current = true;
-			} catch (cameraError) {
-				if (!cancelled) {
-					console.warn("Failed to get webcam access:", cameraError);
-					setWebcamEnabledState(false);
-					setWebcamPreviewStream(null);
-					const isDeviceError =
-						cameraError instanceof DOMException &&
-						[
-							"NotFoundError",
-							"DevicesNotFoundError",
-							"OverconstrainedError",
-							"NotReadableError",
-						].includes(cameraError.name);
-					toast.error(t(isDeviceError ? "recording.cameraNotFound" : "recording.cameraBlocked"));
-					webcamReady.current = true;
-				}
-			}
-		};
-
-		void acquire();
-
-		return () => {
-			cancelled = true;
-			webcamReady.current = false;
-			if (acquiredStream) {
-				acquiredStream.getTracks().forEach((track) => {
-					track.onended = null;
-					track.stop();
-				});
-				webcamStream.current = null;
-				setWebcamPreviewStream(null);
-			}
-		};
-	}, [
-		webcamEnabled,
-		webcamDeviceId,
-		webcamSettings.fps,
-		webcamSettings.height,
-		webcamSettings.width,
-		t,
-	]);
 
 	const runPostRecordingActions = useCallback(
 		async (
@@ -933,10 +836,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 						t(accessResult.success ? "recording.cameraBlocked" : "recording.failedCameraAccess"),
 					);
 					nativeWebcamEnabled = false;
-					webcamAcquireId.current++;
 					setWebcamEnabledState(false);
-				} else {
-					stopWebcamPreviewStream();
 				}
 			}
 			const request: NativeWindowsRecordingRequest = {
@@ -1055,10 +955,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 						t(accessResult.success ? "recording.cameraBlocked" : "recording.failedCameraAccess"),
 					);
 					nativeWebcamEnabled = false;
-					webcamAcquireId.current++;
 					setWebcamEnabledState(false);
-				} else {
-					stopWebcamPreviewStream();
 				}
 			}
 			if (!isCountdownRunActive(countdownRunToken)) {
@@ -1368,23 +1265,49 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			}
 
 			if (webcamEnabled) {
-				if (!webcamReady.current) {
-					await new Promise<void>((resolve) => {
-						const interval = setInterval(() => {
-							if (webcamReady.current) {
-								clearInterval(interval);
-								resolve();
-							}
-						}, 50);
-						setTimeout(() => {
-							clearInterval(interval);
-							resolve();
-						}, 5000);
+				try {
+					const videoConstraints: MediaTrackConstraints = {
+						...(webcamDeviceId ? { deviceId: { exact: webcamDeviceId } } : {}),
+						width: { ideal: webcamSettings.width },
+						height: { ideal: webcamSettings.height },
+						frameRate: { ideal: webcamSettings.fps, max: webcamSettings.fps },
+					};
+					const acquiredWebcamStream = await navigator.mediaDevices.getUserMedia({
+						audio: false,
+						video: videoConstraints,
 					});
-				}
-				if (!webcamStream.current) {
-					webcamAcquireId.current++;
+
+					if (!isCountdownRunActive(countdownRunToken)) {
+						acquiredWebcamStream.getTracks().forEach((track) => {
+							track.onended = null;
+							track.stop();
+						});
+						teardownMedia();
+						return;
+					}
+
+					acquiredWebcamStream.getVideoTracks().forEach((track) => {
+						track.onended = () => {
+							webcamStream.current = null;
+							if (!restarting.current) {
+								setWebcamEnabledState(false);
+								toast.error(t("recording.cameraDisconnected"));
+							}
+						};
+					});
+					webcamStream.current = acquiredWebcamStream;
+				} catch (cameraError) {
+					console.warn("Failed to get webcam access:", cameraError);
 					setWebcamEnabledState(false);
+					const isDeviceError =
+						cameraError instanceof DOMException &&
+						[
+							"NotFoundError",
+							"DevicesNotFoundError",
+							"OverconstrainedError",
+							"NotReadableError",
+						].includes(cameraError.name);
+					toast.error(t(isDeviceError ? "recording.cameraNotFound" : "recording.cameraBlocked"));
 				}
 			}
 
@@ -1815,7 +1738,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		setWebcamEnabled,
 		webcamSettings,
 		setWebcamSettings,
-		webcamPreviewStream,
 		cursorCaptureMode,
 		setCursorCaptureMode,
 	};

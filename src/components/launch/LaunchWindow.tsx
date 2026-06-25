@@ -26,7 +26,7 @@ import {
 	X,
 	XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n, useScopedT } from "@/contexts/I18nContext";
 import { getAvailableLocales, getLocaleName } from "@/i18n/loader";
@@ -40,7 +40,6 @@ import { useAudioLevelMeter } from "../../hooks/useAudioLevelMeter";
 import { useCameraDevices } from "../../hooks/useCameraDevices";
 import { useMicrophoneDevices } from "../../hooks/useMicrophoneDevices";
 import { useScreenRecorder } from "../../hooks/useScreenRecorder";
-import { requestCameraAccess } from "../../lib/requestCameraAccess";
 import { formatTimePadded } from "../../utils/timeUtils";
 import { AudioLevelMeter } from "../ui/audio-level-meter";
 import { Switch } from "../ui/switch";
@@ -62,9 +61,7 @@ const AUDIO_MENU_MAX_HEIGHT = 460;
 const WEBCAM_MENU_WIDTH = 440;
 const WEBCAM_MENU_MAX_HEIGHT = 600;
 const WEBCAM_MENU_CHROME_HEIGHT = 112;
-const WEBCAM_PREVIEW_WIDTH = 184;
-const WEBCAM_PREVIEW_HEIGHT = 116;
-const WEBCAM_PREVIEW_VIEWPORT_PADDING = 10;
+const FLOATING_MENU_GAP = 8;
 
 const ICON_CONFIG = {
 	drag: { icon: GripVertical, size: ICON_SIZE },
@@ -139,7 +136,6 @@ export function LaunchWindow() {
 		setSystemAudioEnabled,
 		webcamEnabled,
 		setWebcamEnabled,
-		webcamPreviewStream,
 		webcamDeviceId,
 		setWebcamDeviceId,
 		setWebcamDeviceName,
@@ -148,7 +144,6 @@ export function LaunchWindow() {
 	} = useScreenRecorder();
 
 	const audioMeterEnabled = microphoneEnabled && !recording;
-	const showWebcamPreview = webcamEnabled && Boolean(webcamPreviewStream) && !recording;
 
 	const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
 	const [isAudioMenuOpen, setIsAudioMenuOpen] = useState(false);
@@ -174,21 +169,10 @@ export function LaunchWindow() {
 	const audioMenuPanelRef = useRef<HTMLDivElement | null>(null);
 	const webcamTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const webcamMenuPanelRef = useRef<HTMLDivElement | null>(null);
-	const webcamPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
 	const languageTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const languageMenuPanelRef = useRef<HTMLDivElement | null>(null);
 	const hudBarRef = useRef<HTMLDivElement | null>(null);
-	const deviceSelectorRef = useRef<HTMLDivElement | null>(null);
 	const isDraggingHudRef = useRef(false);
-	const webcamPreviewDragRef = useRef<{
-		pointerId: number;
-		offsetX: number;
-		offsetY: number;
-	} | null>(null);
-	const [webcamPreviewPosition, setWebcamPreviewPosition] = useState<{
-		left: number;
-		top: number;
-	} | null>(null);
 	const [languageMenuStyle, setLanguageMenuStyle] = useState<{
 		right: number;
 		top: number;
@@ -239,10 +223,14 @@ export function LaunchWindow() {
 		(device) => device.deviceId === (microphoneDeviceId || selectedMicId),
 	);
 	const selectedMicLabel = selectedMicDevice?.label || t("audio.defaultMicrophone");
-	const audioDeviceMenuLayout = getAudioDeviceMenuLayout(
-		micDevices.length,
-		audioMenuStyle.maxHeight,
-	);
+	const audioDeviceNaturalMenuLayout = getAudioDeviceMenuLayout(micDevices.length);
+	const audioMenuTargetHeight =
+		isAudioDeviceListOpen && microphoneEnabled
+			? Math.min(audioDeviceNaturalMenuLayout.menuNaturalHeight, AUDIO_MENU_MAX_HEIGHT)
+			: undefined;
+	const audioDeviceMenuLayout = getAudioDeviceMenuLayout(micDevices.length, audioMenuTargetHeight);
+	const audioMenuTargetWidth =
+		isAudioDeviceListOpen && microphoneEnabled ? audioDeviceMenuLayout.menuWidth : AUDIO_MENU_WIDTH;
 	const selectedCameraDevice = cameraDevices.find(
 		(d) => d.deviceId === (webcamDeviceId || selectedCameraId),
 	);
@@ -253,14 +241,22 @@ export function LaunchWindow() {
 			: cameraDevices.length === 0
 				? t("webcam.noneFound")
 				: selectedCameraDevice?.label || t("webcam.defaultCamera");
-	const webcamDeviceMenuLayout = getAudioDeviceMenuLayout(
+	const webcamDeviceNaturalMenuLayout = getAudioDeviceMenuLayout(
 		cameraDevices.length,
-		webcamMenuStyle.maxHeight,
+		undefined,
 		WEBCAM_MENU_CHROME_HEIGHT,
 	);
-	const webcamPreviewWidth = WEBCAM_PREVIEW_WIDTH;
-	const webcamPreviewHeight = WEBCAM_PREVIEW_HEIGHT;
-	const webcamPreviewBorderRadius = "18px";
+	const webcamMenuTargetHeight = isWebcamDeviceListOpen
+		? Math.min(webcamDeviceNaturalMenuLayout.menuNaturalHeight, WEBCAM_MENU_MAX_HEIGHT)
+		: undefined;
+	const webcamDeviceMenuLayout = getAudioDeviceMenuLayout(
+		cameraDevices.length,
+		webcamMenuTargetHeight,
+		WEBCAM_MENU_CHROME_HEIGHT,
+	);
+	const webcamMenuTargetWidth = isWebcamDeviceListOpen
+		? webcamDeviceMenuLayout.menuWidth
+		: WEBCAM_MENU_WIDTH;
 
 	const { level } = useAudioLevelMeter({
 		enabled: audioMeterEnabled,
@@ -362,34 +358,6 @@ export function LaunchWindow() {
 	}, []);
 
 	useEffect(() => {
-		if (!import.meta.env.DEV) {
-			return;
-		}
-
-		void requestCameraAccess().catch((error) => {
-			console.warn("Failed to trigger camera access request during development:", error);
-		});
-	}, []);
-
-	useEffect(() => {
-		const video = webcamPreviewVideoRef.current;
-		if (!video) {
-			return;
-		}
-
-		video.srcObject = webcamPreviewStream;
-		if (webcamPreviewStream) {
-			void video.play().catch((error) => {
-				console.warn("Failed to start webcam preview video:", error);
-			});
-		}
-
-		return () => {
-			video.srcObject = null;
-		};
-	}, [webcamPreviewStream]);
-
-	useEffect(() => {
 		if (!isLanguageMenuOpen && !isAudioMenuOpen && !isWebcamMenuOpen) return;
 
 		const handlePointerDown = (event: PointerEvent) => {
@@ -429,13 +397,13 @@ export function LaunchWindow() {
 		};
 	}, [isLanguageMenuOpen, isAudioMenuOpen, isWebcamMenuOpen]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!isLanguageMenuOpen || !languageTriggerRef.current) return;
 
 		const updatePosition = () => {
 			if (!languageTriggerRef.current) return;
 			const rect = languageTriggerRef.current.getBoundingClientRect();
-			const gap = 8;
+			const gap = FLOATING_MENU_GAP;
 			const viewportPadding = 8;
 			const availableHeight = Math.min(
 				LANGUAGE_MENU_MAX_HEIGHT,
@@ -460,29 +428,24 @@ export function LaunchWindow() {
 		};
 	}, [isLanguageMenuOpen]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!isAudioMenuOpen || !audioTriggerRef.current) return;
 
 		const updatePosition = () => {
 			if (!audioTriggerRef.current) return;
 			const rect = audioTriggerRef.current.getBoundingClientRect();
-			const gap = 8;
+			const gap = FLOATING_MENU_GAP;
 			const viewportPadding = 8;
 			const availableAbove = rect.top - viewportPadding - gap;
 			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
 			const placeAbove = availableAbove >= 180 || availableAbove >= availableBelow;
-			const availableHeight = Math.min(
-				AUDIO_MENU_MAX_HEIGHT,
-				Math.max(180, placeAbove ? availableAbove : availableBelow),
-			);
-			const panelWidth =
-				isAudioDeviceListOpen && microphoneEnabled
-					? audioDeviceMenuLayout.menuWidth
-					: AUDIO_MENU_WIDTH;
+			const panelWidth = audioMenuTargetWidth;
 			const panelHeight =
-				isAudioDeviceListOpen && microphoneEnabled
-					? Math.min(audioDeviceMenuLayout.menuNaturalHeight, availableHeight)
-					: Math.min(AUDIO_MENU_MAX_HEIGHT, availableHeight);
+				audioMenuTargetHeight ??
+				Math.min(
+					AUDIO_MENU_MAX_HEIGHT,
+					Math.max(180, placeAbove ? availableAbove : availableBelow),
+				);
 			const centeredLeft = rect.left + rect.width / 2 - panelWidth / 2;
 			const left = Math.min(
 				Math.max(viewportPadding, centeredLeft),
@@ -508,34 +471,30 @@ export function LaunchWindow() {
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
 		};
-	}, [
-		isAudioMenuOpen,
-		isAudioDeviceListOpen,
-		microphoneEnabled,
-		audioDeviceMenuLayout.menuWidth,
-		audioDeviceMenuLayout.menuNaturalHeight,
-	]);
+	}, [isAudioMenuOpen, audioMenuTargetHeight, audioMenuTargetWidth]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!isWebcamMenuOpen || !webcamTriggerRef.current) return;
 
 		const updatePosition = () => {
 			if (!webcamTriggerRef.current) return;
 			const rect = webcamTriggerRef.current.getBoundingClientRect();
-			const gap = 8;
+			const gap = FLOATING_MENU_GAP;
 			const viewportPadding = 8;
 			const availableAbove = rect.top - viewportPadding - gap;
 			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
 			const placeAbove = availableAbove >= 260 || availableAbove >= availableBelow;
-			const availableHeight = Math.min(
-				WEBCAM_MENU_MAX_HEIGHT,
-				Math.max(260, placeAbove ? availableAbove : availableBelow),
-			);
-			const panelHeight = Math.min(WEBCAM_MENU_MAX_HEIGHT, availableHeight);
-			const centeredLeft = rect.left + rect.width / 2 - WEBCAM_MENU_WIDTH / 2;
+			const panelWidth = webcamMenuTargetWidth;
+			const panelHeight =
+				webcamMenuTargetHeight ??
+				Math.min(
+					WEBCAM_MENU_MAX_HEIGHT,
+					Math.max(260, placeAbove ? availableAbove : availableBelow),
+				);
+			const centeredLeft = rect.left + rect.width / 2 - panelWidth / 2;
 			const left = Math.min(
 				Math.max(viewportPadding, centeredLeft),
-				Math.max(viewportPadding, window.innerWidth - viewportPadding - WEBCAM_MENU_WIDTH),
+				Math.max(viewportPadding, window.innerWidth - viewportPadding - panelWidth),
 			);
 			const top = placeAbove
 				? Math.max(viewportPadding, rect.top - gap - panelHeight)
@@ -544,7 +503,7 @@ export function LaunchWindow() {
 			setWebcamMenuStyle({
 				left,
 				top,
-				width: WEBCAM_MENU_WIDTH,
+				width: panelWidth,
 				maxHeight: panelHeight,
 			});
 		};
@@ -557,7 +516,7 @@ export function LaunchWindow() {
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
 		};
-	}, [isWebcamMenuOpen]);
+	}, [isWebcamMenuOpen, webcamMenuTargetHeight, webcamMenuTargetWidth]);
 
 	useEffect(() => {
 		if (!isAudioMenuOpen || !microphoneEnabled) {
@@ -566,10 +525,10 @@ export function LaunchWindow() {
 	}, [isAudioMenuOpen, microphoneEnabled]);
 
 	useEffect(() => {
-		if (!isWebcamMenuOpen || !webcamEnabled) {
+		if (!isWebcamMenuOpen) {
 			setIsWebcamDeviceListOpen(false);
 		}
-	}, [isWebcamMenuOpen, webcamEnabled]);
+	}, [isWebcamMenuOpen]);
 
 	useEffect(() => {
 		if (!isLanguageMenuOpen || !languageMenuPanelRef.current) return;
@@ -606,35 +565,24 @@ export function LaunchWindow() {
 		let contentWidth = barWidth;
 		let contentHeight = hudEdge === "top" || hudEdge === "bottom" ? barHeight + 20 : barHeight;
 
-		// Popups drive both dimensions too. Their vertical anchor depends on bar height,
-		// which is fed back through React state and lags by a frame, so derive their top
-		// edge from the bar's natural height instead of the stale rendered position. Keeps
-		// one measurement pass authoritative and avoids a feedback re-measure.
-		if (deviceSelectorRef.current) {
-			const rect = deviceSelectorRef.current.getBoundingClientRect();
-			if (rect.width !== 0 || rect.height !== 0) {
-				contentWidth = Math.max(contentWidth, Math.ceil(rect.left + rect.width));
-				contentHeight = Math.max(contentHeight, Math.ceil(rect.top + rect.height));
-			}
-		}
+		// Popups are positioned in the same transparent HUD window as the bar. Reserve
+		// space for both the bar and the popup; measuring only the popup's clipped box
+		// creates a resize feedback loop where device lists can never grow past the old
+		// small window height.
+		const measurePopup = (el: HTMLElement | null) => {
+			if (!el) return;
+			const rect = el.getBoundingClientRect();
+			if (rect.width === 0 && rect.height === 0) return;
+			contentWidth = Math.max(contentWidth, Math.ceil(rect.width));
+			contentHeight = Math.max(
+				contentHeight,
+				Math.ceil(barHeight + FLOATING_MENU_GAP + rect.height),
+			);
+		};
 
-		// The language menu scrolls within available height, so it only influences width.
-		// Its presence in the DOM means it's open.
-		if (languageMenuPanelRef.current) {
-			const rect = languageMenuPanelRef.current.getBoundingClientRect();
-			contentWidth = Math.max(contentWidth, Math.ceil(rect.width));
-			contentHeight = Math.max(contentHeight, Math.ceil(rect.height));
-		}
-		if (audioMenuPanelRef.current) {
-			const rect = audioMenuPanelRef.current.getBoundingClientRect();
-			contentWidth = Math.max(contentWidth, Math.ceil(rect.width));
-			contentHeight = Math.max(contentHeight, Math.ceil(rect.height));
-		}
-		if (webcamMenuPanelRef.current) {
-			const rect = webcamMenuPanelRef.current.getBoundingClientRect();
-			contentWidth = Math.max(contentWidth, Math.ceil(rect.width));
-			contentHeight = Math.max(contentHeight, Math.ceil(rect.height));
-		}
+		measurePopup(languageMenuPanelRef.current);
+		measurePopup(audioMenuPanelRef.current);
+		measurePopup(webcamMenuPanelRef.current);
 
 		const width = Math.max(MIN_WIDTH, contentWidth + SIDE_MARGIN * 2);
 		const height = contentHeight + TOP_MARGIN * 2;
@@ -652,7 +600,6 @@ export function LaunchWindow() {
 		const observer = new ResizeObserver(() => measureHudSize());
 		hudResizeObserverRef.current = observer;
 		if (hudBarRef.current) observer.observe(hudBarRef.current);
-		if (deviceSelectorRef.current) observer.observe(deviceSelectorRef.current);
 		if (audioMenuPanelRef.current) observer.observe(audioMenuPanelRef.current);
 		if (webcamMenuPanelRef.current) observer.observe(webcamMenuPanelRef.current);
 		measureHudSize();
@@ -674,10 +621,6 @@ export function LaunchWindow() {
 	);
 	const setHudBarEl = useCallback(
 		(el: HTMLDivElement | null) => observeHudElement(el, hudBarRef),
-		[observeHudElement],
-	);
-	const setDeviceSelectorEl = useCallback(
-		(el: HTMLDivElement | null) => observeHudElement(el, deviceSelectorRef),
 		[observeHudElement],
 	);
 	const setLanguageMenuPanelEl = useCallback(
@@ -792,91 +735,6 @@ export function LaunchWindow() {
 		}
 	};
 
-	const clampWebcamPreviewPosition = useCallback((left: number, top: number) => {
-		const padding = WEBCAM_PREVIEW_VIEWPORT_PADDING;
-		const maxLeft = Math.max(padding, window.innerWidth - webcamPreviewWidth - padding);
-		const maxTop = Math.max(padding, window.innerHeight - webcamPreviewHeight - padding);
-		return {
-			left: Math.min(Math.max(padding, Math.round(left)), maxLeft),
-			top: Math.min(Math.max(padding, Math.round(top)), maxTop),
-		};
-	}, []);
-
-	useEffect(() => {
-		if (!showWebcamPreview) {
-			webcamPreviewDragRef.current = null;
-			return;
-		}
-
-		setWebcamPreviewPosition((current) => {
-			if (current) {
-				return clampWebcamPreviewPosition(current.left, current.top);
-			}
-
-			return clampWebcamPreviewPosition(
-				(window.innerWidth - webcamPreviewWidth) / 2,
-				Math.max(WEBCAM_PREVIEW_VIEWPORT_PADDING, (window.innerHeight - webcamPreviewHeight) / 2),
-			);
-		});
-	}, [clampWebcamPreviewPosition, showWebcamPreview]);
-
-	useEffect(() => {
-		if (!showWebcamPreview) return;
-
-		const handleResize = () => {
-			setWebcamPreviewPosition((current) =>
-				current ? clampWebcamPreviewPosition(current.left, current.top) : current,
-			);
-		};
-
-		window.addEventListener("resize", handleResize);
-		return () => window.removeEventListener("resize", handleResize);
-	}, [clampWebcamPreviewPosition, showWebcamPreview]);
-
-	const handleWebcamPreviewPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-		if ((event.target as HTMLElement | null)?.closest("button")) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		const rect = event.currentTarget.getBoundingClientRect();
-		webcamPreviewDragRef.current = {
-			pointerId: event.pointerId,
-			offsetX: event.clientX - rect.left,
-			offsetY: event.clientY - rect.top,
-		};
-		event.currentTarget.setPointerCapture(event.pointerId);
-		setHudMouseEventsEnabled(true);
-	};
-
-	const handleWebcamPreviewPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-		const drag = webcamPreviewDragRef.current;
-		if (!drag || drag.pointerId !== event.pointerId) return;
-
-		event.preventDefault();
-		event.stopPropagation();
-		setHudMouseEventsEnabled(true);
-		setWebcamPreviewPosition(
-			clampWebcamPreviewPosition(event.clientX - drag.offsetX, event.clientY - drag.offsetY),
-		);
-	};
-
-	const handleWebcamPreviewPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
-		const drag = webcamPreviewDragRef.current;
-		if (!drag || drag.pointerId !== event.pointerId) return;
-
-		event.preventDefault();
-		event.stopPropagation();
-		webcamPreviewDragRef.current = null;
-		if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-			event.currentTarget.releasePointerCapture(event.pointerId);
-		}
-		if (!isLanguageMenuOpen && !isAudioMenuOpen && !isWebcamMenuOpen) {
-			setHudMouseEventsEnabled(false);
-		}
-	};
-
 	const handleHudDragPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
@@ -926,7 +784,7 @@ export function LaunchWindow() {
 		<div
 			className="h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-transparent"
 			onPointerMove={(event) => {
-				if (isDraggingHudRef.current || webcamPreviewDragRef.current) {
+				if (isDraggingHudRef.current) {
 					setHudMouseEventsEnabled(true);
 					return;
 				}
@@ -939,7 +797,7 @@ export function LaunchWindow() {
 				setHudMouseEventsEnabled(shouldCapture);
 			}}
 			onPointerLeave={() => {
-				if (isDraggingHudRef.current || webcamPreviewDragRef.current) {
+				if (isDraggingHudRef.current) {
 					return;
 				}
 				if (!isLanguageMenuOpen && !isAudioMenuOpen && !isWebcamMenuOpen) {
@@ -947,49 +805,6 @@ export function LaunchWindow() {
 				}
 			}}
 		>
-			{/* Pre-recording webcam preview. Recording hides it; Open Studio owns editing after save. */}
-			{showWebcamPreview && webcamPreviewPosition && (
-				<div
-					ref={setDeviceSelectorEl}
-					data-hud-interactive="true"
-					className={`fixed animate-mic-panel-in bg-transparent ${styles.electronNoDrag}`}
-					style={
-						{
-							left: `${webcamPreviewPosition.left}px`,
-							top: `${webcamPreviewPosition.top}px`,
-							width: `${webcamPreviewWidth}px`,
-							height: `${webcamPreviewHeight}px`,
-							WebkitAppRegion: "no-drag",
-						} as React.CSSProperties
-					}
-					onPointerDown={handleWebcamPreviewPointerDown}
-					onPointerMove={handleWebcamPreviewPointerMove}
-					onPointerUp={handleWebcamPreviewPointerEnd}
-					onPointerCancel={handleWebcamPreviewPointerEnd}
-					onPointerEnter={() => setHudMouseEventsEnabled(true)}
-				>
-					<div
-						className="group relative h-full w-full cursor-grab active:cursor-grabbing"
-						style={{
-							filter: "drop-shadow(0 12px 30px rgba(0,0,0,0.32))",
-						}}
-					>
-						<div
-							className="h-full w-full overflow-hidden border border-white/20 bg-transparent"
-							style={{ borderRadius: webcamPreviewBorderRadius }}
-						>
-							<video
-								ref={webcamPreviewVideoRef}
-								muted
-								playsInline
-								className="h-full w-full object-cover"
-								style={{ borderRadius: webcamPreviewBorderRadius }}
-							/>
-						</div>
-					</div>
-				</div>
-			)}
-
 			{/* HUD bar, viewport-relative, aligned with the edge chosen by the native window. */}
 			<div
 				ref={setHudBarEl}
@@ -1149,7 +964,7 @@ export function LaunchWindow() {
 								ref={setWebcamMenuPanelEl}
 								data-hud-interactive="true"
 								role="menu"
-								className={`${styles.languageMenuPanel} ${styles.languageMenuScroll} ${styles.electronNoDrag}`}
+								className={`${styles.languageMenuPanel} ${styles.electronNoDrag}`}
 								style={
 									{
 										WebkitAppRegion: "no-drag",
@@ -1158,7 +973,9 @@ export function LaunchWindow() {
 										right: "auto",
 										top: `${webcamMenuStyle.top}px`,
 										maxHeight: `${webcamMenuStyle.maxHeight}px`,
-										width: `${webcamMenuStyle.width}px`,
+										width: `${webcamMenuTargetWidth}px`,
+										height: webcamMenuTargetHeight ? `${webcamMenuTargetHeight}px` : undefined,
+										overflow: "hidden",
 									} as React.CSSProperties
 								}
 								onPointerDown={(event) => event.stopPropagation()}
@@ -1213,7 +1030,7 @@ export function LaunchWindow() {
 									</button>
 									{isWebcamDeviceListOpen ? (
 										<div
-											className="mt-1 grid overflow-y-auto pr-1"
+											className={`${styles.languageMenuScroll} mt-1 grid pr-1`}
 											style={{
 												gridTemplateColumns: `repeat(${webcamDeviceMenuLayout.columnCount}, minmax(0, 1fr))`,
 												gap: `${AUDIO_DEVICE_ROW_GAP}px`,
@@ -1274,7 +1091,7 @@ export function LaunchWindow() {
 								ref={setAudioMenuPanelEl}
 								data-hud-interactive="true"
 								role="menu"
-								className={`${styles.languageMenuPanel} ${styles.languageMenuScroll} ${styles.electronNoDrag}`}
+								className={`${styles.languageMenuPanel} ${styles.electronNoDrag}`}
 								style={
 									{
 										WebkitAppRegion: "no-drag",
@@ -1283,7 +1100,9 @@ export function LaunchWindow() {
 										right: "auto",
 										top: `${audioMenuStyle.top}px`,
 										maxHeight: `${audioMenuStyle.maxHeight}px`,
-										width: `${audioMenuStyle.width}px`,
+										width: `${audioMenuTargetWidth}px`,
+										height: audioMenuTargetHeight ? `${audioMenuTargetHeight}px` : undefined,
+										overflow: "hidden",
 									} as React.CSSProperties
 								}
 								onPointerDown={(event) => event.stopPropagation()}
@@ -1347,7 +1166,7 @@ export function LaunchWindow() {
 										</button>
 										{isAudioDeviceListOpen ? (
 											<div
-												className="mt-1 grid overflow-y-auto pr-1"
+												className={`${styles.languageMenuScroll} mt-1 grid pr-1`}
 												style={{
 													gridTemplateColumns: `repeat(${audioDeviceMenuLayout.columnCount}, minmax(0, 1fr))`,
 													gap: `${AUDIO_DEVICE_ROW_GAP}px`,
