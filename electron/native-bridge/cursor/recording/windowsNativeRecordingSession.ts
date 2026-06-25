@@ -47,10 +47,15 @@ interface NormalizedSample {
 	withinBounds: boolean;
 }
 
+function clamp(value: number, min: number, max: number) {
+	return Math.min(max, Math.max(min, value));
+}
+
 export class WindowsNativeRecordingSession implements CursorRecordingSession {
 	private assets = new Map<string, NativeCursorAsset>();
 	private samples: CursorRecordingSample[] = [];
 	private process: ChildProcessByStdio<null, Readable, Readable> | null = null;
+	private fallbackInterval: NodeJS.Timeout | null = null;
 	private lineBuffer = "";
 	private startTimeMs = 0;
 	private readyResolve: (() => void) | null = null;
@@ -70,10 +75,13 @@ export class WindowsNativeRecordingSession implements CursorRecordingSession {
 		this.sampleCount = 0;
 		this.outOfBoundsSampleCount = 0;
 		this.previousLeftButtonDown = false;
+		this.stopPositionOnlyFallback();
 
 		const helperPath = findCursorSamplerPath();
 		if (!helperPath) {
-			throw new Error("Windows cursor sampler helper is not available.");
+			this.logDiagnostic("fallback-start", { reason: "missing-helper" });
+			this.startPositionOnlyFallback();
+			return;
 		}
 
 		const windowHandle = parseWindowHandleFromSourceId(this.options.sourceId);
@@ -106,6 +114,9 @@ export class WindowsNativeRecordingSession implements CursorRecordingSession {
 			console.error("[cursor-native]", message);
 		});
 		child.once("exit", (code, signal) => {
+			if (this.process !== child) {
+				return;
+			}
 			this.logDiagnostic("exit", {
 				code,
 				signal,
@@ -113,20 +124,24 @@ export class WindowsNativeRecordingSession implements CursorRecordingSession {
 				assetCount: this.assets.size,
 				outOfBoundsSampleCount: this.outOfBoundsSampleCount,
 			});
-			this.rejectReady(
-				new Error(`Windows cursor helper exited before ready (code=${code}, signal=${signal})`),
+			this.handleHelperFailure(
+				new Error(`Windows cursor helper exited (code=${code}, signal=${signal})`),
 			);
 		});
 		child.once("error", (error) => {
+			if (this.process !== child) {
+				return;
+			}
 			this.logDiagnostic("process-error", { message: error.message });
-			this.rejectReady(error);
+			this.handleHelperFailure(error);
 		});
 
 		try {
 			await this.waitUntilReady();
 		} catch (error) {
 			this.terminateHelperProcess();
-			throw error;
+			console.warn("[cursor-native][win32] falling back to position-only cursor telemetry:", error);
+			this.startPositionOnlyFallback();
 		}
 	}
 
@@ -134,6 +149,7 @@ export class WindowsNativeRecordingSession implements CursorRecordingSession {
 		const child = this.process;
 		this.process = null;
 		this.clearReadyState();
+		this.stopPositionOnlyFallback();
 
 		this.killHelperProcess(child);
 
@@ -149,6 +165,55 @@ export class WindowsNativeRecordingSession implements CursorRecordingSession {
 			samples: this.samples,
 			assets: [...this.assets.values()],
 		};
+	}
+
+	private startPositionOnlyFallback() {
+		if (this.fallbackInterval) {
+			return;
+		}
+
+		this.capturePositionOnlySample(Date.now());
+		this.fallbackInterval = setInterval(() => {
+			this.capturePositionOnlySample(Date.now());
+		}, this.options.sampleIntervalMs);
+	}
+
+	private stopPositionOnlyFallback() {
+		if (!this.fallbackInterval) {
+			return;
+		}
+
+		clearInterval(this.fallbackInterval);
+		this.fallbackInterval = null;
+	}
+
+	private capturePositionOnlySample(timestampMs: number) {
+		const cursor = screen.getCursorScreenPoint();
+		const bounds = this.options.getDisplayBounds() ?? screen.getDisplayNearestPoint(cursor).bounds;
+		const width = Math.max(1, bounds.width);
+		const height = Math.max(1, bounds.height);
+		const normalizedX = (cursor.x - bounds.x) / width;
+		const normalizedY = (cursor.y - bounds.y) / height;
+		const withinBounds =
+			normalizedX >= 0 && normalizedX <= 1 && normalizedY >= 0 && normalizedY <= 1;
+
+		this.sampleCount += 1;
+		if (!withinBounds) {
+			this.outOfBoundsSampleCount += 1;
+		}
+
+		this.samples.push({
+			timeMs: Math.max(0, timestampMs - this.startTimeMs),
+			cx: clamp(normalizedX, 0, 1),
+			cy: clamp(normalizedY, 0, 1),
+			visible: withinBounds,
+			interactionType: "move",
+		});
+
+		if (this.samples.length > this.options.maxSamples) {
+			this.samples.shift();
+		}
+		this.emitUpdate();
 	}
 
 	private handleStdoutChunk(chunk: string) {
@@ -304,8 +369,21 @@ export class WindowsNativeRecordingSession implements CursorRecordingSession {
 	}
 
 	private failHelper(error: Error) {
+		this.handleHelperFailure(error);
+	}
+
+	private handleHelperFailure(error: Error) {
+		const wasWaitingForReady = Boolean(this.readyReject);
 		this.rejectReady(error);
 		this.terminateHelperProcess();
+
+		if (wasWaitingForReady) {
+			return;
+		}
+
+		console.warn("[cursor-native][win32] falling back to position-only cursor telemetry:", error);
+		this.logDiagnostic("fallback-start", { reason: error.message });
+		this.startPositionOnlyFallback();
 	}
 
 	private terminateHelperProcess() {

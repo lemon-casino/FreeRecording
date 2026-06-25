@@ -67,7 +67,7 @@ describe("webcamSettings", () => {
 		});
 	});
 
-	it("maps education scene settings to a transparent dual-frame presentation", () => {
+	it("keeps education launch settings in picture-in-picture so Studio owns layout", () => {
 		const settings = normalizeLaunchWebcamSettings({
 			sceneMode: "education",
 			maskShape: "circle",
@@ -76,12 +76,12 @@ describe("webcamSettings", () => {
 		});
 
 		expect(launchWebcamSettingsToPresentation(settings)).toEqual({
-			layoutPreset: "dual-frame",
-			maskShape: "rectangle",
+			layoutPreset: "picture-in-picture",
+			maskShape: "circle",
 			mirrored: false,
 			reactiveZoom: true,
 			sizePreset: 32,
-			position: null,
+			position: { cx: 0.14, cy: 0.18 },
 		});
 	});
 

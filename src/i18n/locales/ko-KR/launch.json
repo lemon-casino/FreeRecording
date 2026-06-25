@@ -63,6 +63,11 @@
 		"loading": "소스 불러오는 중...",
 		"screens": "화면 ({{count}}개)",
 		"windows": "창 ({{count}}개)",
+		"customRegion": "사용자 지정 영역",
+		"noScreens": "사용 가능한 화면이 없습니다",
+		"emptyTitle": "화면 또는 창을 찾을 수 없습니다",
+		"emptyDescription": "방금 화면 녹화 권한을 허용했다면 이 선택기를 다시 불러오세요. macOS에서는 LikelySnap을 다시 열어야 할 수 있습니다.",
+		"loadFailedDescription": "LikelySnap이 녹화 소스를 불러오지 못했습니다. 이 선택기를 다시 불러온 뒤 다시 시도하세요.",
 		"defaultSourceName": "화면"
 	},
 	"recording": {

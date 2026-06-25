@@ -417,10 +417,17 @@ interface Window {
 
 interface ProcessedDesktopSource {
 	id: string;
+	sourceId?: string;
 	name: string;
 	display_id: string;
 	thumbnail: string | null;
 	appIcon: string | null;
+	bounds?: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+	};
 }
 
 interface CursorTelemetryPoint {

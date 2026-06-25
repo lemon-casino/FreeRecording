@@ -65,6 +65,37 @@
 	font-size: 0.75rem;
 }
 
+.customPreview {
+	height: 100%;
+	cursor: crosshair;
+	touch-action: none;
+	user-select: none;
+}
+
+.customRegionScrim {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.32);
+	pointer-events: none;
+}
+
+.customRegionBox {
+	position: absolute;
+	display: flex;
+	align-items: flex-start;
+	justify-content: flex-end;
+	min-width: 36px;
+	min-height: 36px;
+	padding: 0.35rem;
+	border: 2px solid rgba(255, 255, 255, 0.92);
+	background: rgba(194, 75, 114, 0.1);
+	box-shadow:
+		0 0 0 9999px rgba(0, 0, 0, 0.38),
+		0 12px 30px rgba(0, 0, 0, 0.32),
+		inset 0 0 0 1px rgba(194, 75, 114, 0.65);
+	pointer-events: none;
+}
+
 /* Checkmark badge */
 .checkBadge {
 	width: 17px;

@@ -63,6 +63,11 @@
 		"loading": "ソースを読み込み中...",
 		"screens": "画面 ({{count}})",
 		"windows": "ウィンドウ ({{count}})",
+		"customRegion": "カスタム範囲",
+		"noScreens": "利用できる画面がありません",
+		"emptyTitle": "画面またはウィンドウが見つかりません",
+		"emptyDescription": "画面収録の権限を許可したばかりの場合は、この選択画面を再読み込みしてください。macOS では LikelySnap を開き直す必要がある場合があります。",
+		"loadFailedDescription": "LikelySnap は録画ソースを読み込めませんでした。この選択画面を再読み込みして、もう一度お試しください。",
 		"defaultSourceName": "画面"
 	},
 	"recording": {

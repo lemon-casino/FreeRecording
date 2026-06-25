@@ -63,6 +63,11 @@
 		"loading": "正在載入來源...",
 		"screens": "螢幕 ({{count}})",
 		"windows": "視窗 ({{count}})",
+		"customRegion": "自訂錄製",
+		"noScreens": "沒有可用螢幕",
+		"emptyTitle": "找不到螢幕或視窗",
+		"emptyDescription": "如果你剛授予螢幕錄製權限，請重新載入此選擇器。在 macOS 上可能需要重新開啟 LikelySnap。",
+		"loadFailedDescription": "LikelySnap 無法載入錄製來源。請重新載入後再試一次。",
 		"defaultSourceName": "螢幕"
 	},
 	"recording": {

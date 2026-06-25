@@ -2,6 +2,12 @@ import type { RecordingResolutionMode } from "./appSettings";
 import type { WebcamPresentationSettings } from "./webcamSettings";
 
 export type NativeWindowsSourceType = "display" | "window";
+export type NativeCaptureBounds = {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+};
 
 export type NativeWindowsRecordingRequest = {
 	recordingId?: number;
@@ -10,6 +16,8 @@ export type NativeWindowsRecordingRequest = {
 		sourceId: string;
 		displayId?: number;
 		windowHandle?: string;
+		bounds?: NativeCaptureBounds;
+		customBounds?: boolean;
 	};
 	video: {
 		fps: number;

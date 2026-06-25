@@ -14,6 +14,7 @@ export type NativeMacRecordingRequest = {
 		displayId?: number;
 		windowId?: number;
 		bounds?: Rectangle;
+		customBounds?: boolean;
 	};
 	video: {
 		fps: number;

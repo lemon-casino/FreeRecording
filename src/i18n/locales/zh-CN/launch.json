@@ -63,6 +63,11 @@
 		"loading": "正在加载源...",
 		"screens": "屏幕 ({{count}})",
 		"windows": "窗口 ({{count}})",
+		"customRegion": "自定义录制",
+		"noScreens": "没有可用屏幕",
+		"emptyTitle": "未找到屏幕或窗口",
+		"emptyDescription": "如果你刚刚授予录屏权限，请重新加载选择器。macOS 上可能需要重新打开 LikelySnap。",
+		"loadFailedDescription": "LikelySnap 无法加载录制源。请重新加载后再试。",
 		"defaultSourceName": "屏幕"
 	},
 	"recording": {

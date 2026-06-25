@@ -61,6 +61,11 @@
 		"loading": "Carregando fontes...",
 		"screens": "Telas ({{count}})",
 		"windows": "Janelas ({{count}})",
+		"customRegion": "Área personalizada",
+		"noScreens": "Nenhuma tela disponível",
+		"emptyTitle": "Nenhuma tela ou janela encontrada",
+		"emptyDescription": "Se você acabou de conceder permissão de gravação de tela, recarregue este seletor. No macOS talvez seja necessário reabrir o LikelySnap.",
+		"loadFailedDescription": "O LikelySnap não conseguiu carregar as fontes de gravação. Recarregue este seletor e tente novamente.",
 		"defaultSourceName": "Tela"
 	},
 	"recording": {

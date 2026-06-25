@@ -62,7 +62,6 @@ import {
 } from "@/lib/userPreferences";
 import { BackgroundLoadError } from "@/lib/wallpaper";
 import { nativeBridgeClient, useCursorEditorData } from "@/native";
-import type { NativePlatform } from "@/native/contracts";
 import {
 	getAspectRatioValue,
 	getNativeAspectRatioValue,
@@ -188,7 +187,7 @@ function createInitialEditorStateForSession(session: ProjectMedia): EditorState 
 
 	return {
 		...recordingInitialState,
-		webcamLayoutPreset: presentation.layoutPreset,
+		webcamLayoutPreset: "picture-in-picture",
 		webcamMaskShape: presentation.maskShape,
 		webcamMirrored: presentation.mirrored,
 		webcamReactiveZoom: presentation.reactiveZoom,
@@ -328,7 +327,6 @@ export default function VideoEditor() {
 		DEFAULT_CURSOR_SETTINGS.clipToBounds,
 	);
 	const [cursorTheme, setCursorTheme] = useState(DEFAULT_CURSOR_SETTINGS.theme);
-	const [nativePlatform, setNativePlatform] = useState<NativePlatform | null>(null);
 	const [recordingCursorCaptureMode, setRecordingCursorCaptureMode] =
 		useState<CursorCaptureMode | null>(null);
 
@@ -339,12 +337,11 @@ export default function VideoEditor() {
 	const nextSpeedIdRef = useRef(1);
 
 	const { shortcuts, isMac } = useShortcuts();
-	// Windows recordings include captured cursor assets. macOS hides the system
-	// cursor in ScreenCaptureKit and renders telemetry samples with LikelySnap's
-	// default arrow asset for the editable overlay.
+	// Editable cursor recordings hide the system cursor in the source video and
+	// render the saved cursor telemetry in Studio. System-cursor recordings can
+	// still carry telemetry for auto zoom, but must not draw a second cursor.
 	const hasEditableCursorRecording =
 		recordingCursorCaptureMode === "editable-overlay" &&
-		(nativePlatform === "win32" || nativePlatform === "darwin") &&
 		hasNativeCursorRecordingData(cursorRecordingData);
 	const effectiveShowCursor = showCursor && hasEditableCursorRecording;
 	const showCursorSettings = hasEditableCursorRecording;
@@ -1007,27 +1004,6 @@ export default function VideoEditor() {
 			removeSaveAsListener?.();
 		};
 	}, [handleNewProject, handleLoadProject, handleSaveProject, handleSaveProjectAs]);
-
-	useEffect(() => {
-		let canceled = false;
-		nativeBridgeClient.system
-			.getPlatform()
-			.then((platform) => {
-				if (!canceled) {
-					setNativePlatform(platform);
-				}
-			})
-			.catch((error) => {
-				console.warn("Unable to resolve native platform for cursor settings:", error);
-				if (!canceled) {
-					setNativePlatform(null);
-				}
-			});
-
-		return () => {
-			canceled = true;
-		};
-	}, []);
 
 	useEffect(() => {
 		if (cursorEditorDataError) {

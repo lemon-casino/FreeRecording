@@ -261,6 +261,12 @@ bool MFEncoder::ensureStagingTexture(ID3D11Texture2D* texture) {
                      "CreateTexture2D(staging)");
 }
 
+void MFEncoder::setSourceCrop(int x, int y) {
+    hasSourceCrop_ = true;
+    sourceCropX_ = std::max(0, x);
+    sourceCropY_ = std::max(0, y);
+}
+
 MFEncoder::FrameCopyResult MFEncoder::copyFrameToBuffer(
     ID3D11Texture2D* texture,
     BYTE* destination,
@@ -270,7 +276,24 @@ MFEncoder::FrameCopyResult MFEncoder::copyFrameToBuffer(
         return FrameCopyResult::Failed;
     }
 
-    context_->CopyResource(stagingTexture_.Get(), texture);
+    if (hasSourceCrop_) {
+        D3D11_TEXTURE2D_DESC sourceDesc{};
+        texture->GetDesc(&sourceDesc);
+        const int maxCropX = std::max(0, static_cast<int>(sourceDesc.Width) - width_);
+        const int maxCropY = std::max(0, static_cast<int>(sourceDesc.Height) - height_);
+        const int cropX = std::clamp(sourceCropX_, 0, maxCropX);
+        const int cropY = std::clamp(sourceCropY_, 0, maxCropY);
+        D3D11_BOX sourceBox{};
+        sourceBox.left = static_cast<UINT>(cropX);
+        sourceBox.top = static_cast<UINT>(cropY);
+        sourceBox.front = 0;
+        sourceBox.right = static_cast<UINT>(cropX + width_);
+        sourceBox.bottom = static_cast<UINT>(cropY + height_);
+        sourceBox.back = 1;
+        context_->CopySubresourceRegion(stagingTexture_.Get(), 0, 0, 0, 0, texture, 0, &sourceBox);
+    } else {
+        context_->CopyResource(stagingTexture_.Get(), texture);
+    }
 
     D3D11_MAPPED_SUBRESOURCE mapped{};
     HRESULT mapResult = E_FAIL;

@@ -1000,6 +1000,8 @@ type SelectedSource = {
 	name: string;
 	id?: string;
 	display_id?: string;
+	sourceId?: string;
+	bounds?: Rectangle;
 	[key: string]: unknown;
 };
 
@@ -1025,12 +1027,17 @@ export function getSelectedDesktopSource(): DesktopCapturerSource | null {
 }
 
 function toProcessedDesktopSource(source: DesktopCapturerSource): SelectedSource {
+	const displayId = Number(source.display_id);
+	const display = Number.isFinite(displayId)
+		? (screen.getAllDisplays().find((candidate) => candidate.id === displayId) ?? null)
+		: null;
 	return {
 		id: source.id,
 		name: source.name,
 		display_id: source.display_id,
 		thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null,
 		appIcon: source.appIcon ? source.appIcon.toDataURL() : null,
+		...(display ? { bounds: display.bounds } : {}),
 	};
 }
 
@@ -1589,6 +1596,9 @@ function resolveAssetBasePath() {
 }
 
 function getSelectedSourceBounds() {
+	if (selectedSource?.bounds) {
+		return selectedSource.bounds;
+	}
 	const cursor = screen.getCursorScreenPoint();
 	const sourceDisplayId = Number(selectedSource?.display_id);
 	const sourceDisplay = Number.isFinite(sourceDisplayId)
@@ -2773,10 +2783,17 @@ export function registerIpcHandlers(
 		selectedSource = source;
 		// Reuse the exact source object returned during enumeration to avoid
 		// Windows window-source id mismatches across separate getSources() calls.
-		selectedDesktopSource =
-			typeof source.id === "string" ? (lastEnumeratedSources.get(source.id) ?? null) : null;
+		const desktopSourceId =
+			typeof source.sourceId === "string"
+				? source.sourceId
+				: typeof source.id === "string"
+					? source.id
+					: null;
+		selectedDesktopSource = desktopSourceId
+			? (lastEnumeratedSources.get(desktopSourceId) ?? null)
+			: null;
 
-		if (!selectedDesktopSource && typeof source.id === "string") {
+		if (!selectedDesktopSource && desktopSourceId) {
 			try {
 				const sources = await desktopCapturer.getSources({
 					types: ["screen", "window"],
@@ -2784,7 +2801,7 @@ export function registerIpcHandlers(
 					fetchWindowIcons: true,
 				});
 				lastEnumeratedSources = new Map(sources.map((candidate) => [candidate.id, candidate]));
-				selectedDesktopSource = lastEnumeratedSources.get(source.id) ?? null;
+				selectedDesktopSource = lastEnumeratedSources.get(desktopSourceId) ?? null;
 			} catch {
 				selectedDesktopSource = null;
 			}
@@ -3036,7 +3053,7 @@ export function registerIpcHandlers(
 						? (screen.getAllDisplays().find((display) => display.id === request.source.displayId) ??
 							null)
 						: getSelectedDisplay();
-				const bounds = sourceDisplay?.bounds ?? getSelectedSourceBounds();
+				const bounds = request.source.bounds ?? sourceDisplay?.bounds ?? getSelectedSourceBounds();
 				const displayId =
 					typeof request.source.displayId === "number" && Number.isFinite(request.source.displayId)
 						? request.source.displayId
@@ -3067,6 +3084,7 @@ export function registerIpcHandlers(
 					displayW: bounds.width,
 					displayH: bounds.height,
 					hasDisplayBounds: true,
+					customBounds: request.source.customBounds === true,
 					captureSystemAudio: request.audio.system.enabled,
 					captureMic: request.audio.microphone.enabled,
 					microphoneDeviceId: request.audio.microphone.deviceId ?? null,
@@ -3092,6 +3110,7 @@ export function registerIpcHandlers(
 						displayId: Number.isFinite(displayId) ? displayId : null,
 						windowHandle: request.source.windowHandle ?? null,
 						bounds,
+						customBounds: request.source.customBounds === true,
 					},
 					video: request.video,
 					audio: request.audio,
@@ -3148,16 +3167,13 @@ export function registerIpcHandlers(
 				nativeWindowsIsPaused = false;
 
 				const cursorStartTimeMs = Date.now();
-				if (cursorCaptureMode === "editable-overlay") {
-					nativeWindowsCursorRecordingStartMs = cursorStartTimeMs;
-					await startCursorRecording(cursorStartTimeMs, getCursorTelemetryPathForVideo(outputPath));
-					console.info("[native-wgc] cursor sampler ready", {
-						cursorStartTimeMs,
-						warmupMs: Date.now() - cursorStartTimeMs,
-					});
-				} else {
-					pendingCursorRecordingData = null;
-				}
+				nativeWindowsCursorRecordingStartMs = cursorStartTimeMs;
+				await startCursorRecording(cursorStartTimeMs, getCursorTelemetryPathForVideo(outputPath));
+				console.info("[native-wgc] cursor sampler ready", {
+					cursorStartTimeMs,
+					mode: cursorCaptureMode,
+					warmupMs: Date.now() - cursorStartTimeMs,
+				});
 
 				const proc = spawn(helperPath, [JSON.stringify(config)], {
 					cwd: packagePaths.packageDir,
@@ -3181,10 +3197,7 @@ export function registerIpcHandlers(
 
 				await waitForNativeWindowsCaptureStart(proc);
 				const captureStartedAtMs = Date.now();
-				nativeWindowsCursorOffsetMs =
-					cursorCaptureMode === "editable-overlay"
-						? Math.max(0, captureStartedAtMs - cursorStartTimeMs)
-						: 0;
+				nativeWindowsCursorOffsetMs = Math.max(0, captureStartedAtMs - cursorStartTimeMs);
 				cursorTelemetryLiveOffsetMs = nativeWindowsCursorOffsetMs;
 				if (pendingCursorRecordingData) {
 					await queueCursorTelemetryWrite(pendingCursorRecordingData, true);
@@ -3364,8 +3377,6 @@ export function registerIpcHandlers(
 			nativeMacPauseRanges = [];
 			nativeMacIsPaused = false;
 
-			pendingCursorRecordingData = null;
-
 			const proc = spawn(helperPath, [JSON.stringify(config)], {
 				cwd: packagePaths.packageDir,
 				stdio: ["pipe", "pipe", "pipe"],
@@ -3405,15 +3416,13 @@ export function registerIpcHandlers(
 				},
 			};
 			nativeMacCursorOffsetMs = 0;
-			if (cursorCaptureMode === "editable-overlay") {
-				nativeMacCursorRecordingStartMs = captureStartedAtMs;
-				await startCursorRecording(
-					captureStartedAtMs,
-					getCursorTelemetryPathForVideo(outputPath),
-					() => nativeMacCaptureBounds ?? getSelectedSourceBounds(),
-				);
-				cursorTelemetryLiveOffsetMs = 0;
-			}
+			nativeMacCursorRecordingStartMs = captureStartedAtMs;
+			await startCursorRecording(
+				captureStartedAtMs,
+				getCursorTelemetryPathForVideo(outputPath),
+				() => nativeMacCaptureBounds ?? getSelectedSourceBounds(),
+			);
+			cursorTelemetryLiveOffsetMs = 0;
 
 			const source = selectedSource || { name: "Screen" };
 			if (onRecordingStateChange) {
@@ -3587,11 +3596,7 @@ export function registerIpcHandlers(
 				throw new Error("Native Windows capture did not return an output path.");
 			}
 
-			if (cursorCaptureMode === "editable-overlay") {
-				await stopCursorRecording();
-			} else {
-				pendingCursorRecordingData = null;
-			}
+			await stopCursorRecording();
 			if (discard) {
 				pendingCursorRecordingData = null;
 				await endLiveCursorTelemetry(null);
@@ -3599,11 +3604,9 @@ export function registerIpcHandlers(
 				return { success: true, discarded: true };
 			}
 
-			if (cursorCaptureMode === "editable-overlay") {
-				compactPendingCursorTelemetryPauseRanges(nativeWindowsPauseRanges);
-				shiftPendingCursorTelemetry(nativeWindowsCursorOffsetMs);
-				await writePendingCursorTelemetry(screenVideoPath);
-			}
+			compactPendingCursorTelemetryPauseRanges(nativeWindowsPauseRanges);
+			shiftPendingCursorTelemetry(nativeWindowsCursorOffsetMs);
+			await writePendingCursorTelemetry(screenVideoPath);
 			const stoppedInfo = readNativeWindowsRecordingStoppedInfo(nativeWindowsCaptureOutput);
 			const stoppedWebcamPath = stoppedInfo?.webcamPath ?? preferredWebcamPath;
 			let webcamVideoPath: string | undefined;
@@ -3656,11 +3659,7 @@ export function registerIpcHandlers(
 					state: summarizeNativeCaptureState(),
 				});
 
-				if (cursorCaptureMode === "editable-overlay") {
-					await stopCursorRecording();
-				} else {
-					pendingCursorRecordingData = null;
-				}
+				await stopCursorRecording();
 
 				if (screenVideoPath && discard) {
 					pendingCursorRecordingData = null;
@@ -3682,11 +3681,9 @@ export function registerIpcHandlers(
 					};
 				}
 
-				if (cursorCaptureMode === "editable-overlay") {
-					compactPendingCursorTelemetryPauseRanges(nativeWindowsPauseRanges);
-					shiftPendingCursorTelemetry(nativeWindowsCursorOffsetMs);
-					await writePendingCursorTelemetry(screenVideoPath);
-				}
+				compactPendingCursorTelemetryPauseRanges(nativeWindowsPauseRanges);
+				shiftPendingCursorTelemetry(nativeWindowsCursorOffsetMs);
+				await writePendingCursorTelemetry(screenVideoPath);
 
 				const screenStats = await fs.stat(screenVideoPath).catch(() => null);
 				if (!screenStats?.isFile() || screenStats.size <= 0) {
@@ -3815,11 +3812,7 @@ export function registerIpcHandlers(
 				throw new Error("Native macOS capture did not return an output path.");
 			}
 
-			if (cursorCaptureMode === "editable-overlay") {
-				await stopCursorRecording();
-			} else {
-				pendingCursorRecordingData = null;
-			}
+			await stopCursorRecording();
 			if (discard) {
 				pendingCursorRecordingData = null;
 				await endLiveCursorTelemetry(null);
@@ -3827,11 +3820,9 @@ export function registerIpcHandlers(
 				return { success: true, discarded: true };
 			}
 
-			if (cursorCaptureMode === "editable-overlay") {
-				compactPendingCursorTelemetryPauseRanges(nativeMacPauseRanges);
-				shiftPendingCursorTelemetry(nativeMacCursorOffsetMs);
-				await writePendingCursorTelemetry(screenVideoPath);
-			}
+			compactPendingCursorTelemetryPauseRanges(nativeMacPauseRanges);
+			shiftPendingCursorTelemetry(nativeMacCursorOffsetMs);
+			await writePendingCursorTelemetry(screenVideoPath);
 
 			const stoppedWebcamValidation = await resolveValidatedVideoSidecarPath(
 				stoppedInfo.webcamPath,
@@ -4297,7 +4288,7 @@ export function registerIpcHandlers(
 		async (_, recording: boolean, recordingId?: number, cursorCaptureMode?: CursorCaptureMode) => {
 			const normalizedCursorCaptureMode =
 				normalizeCursorCaptureMode(cursorCaptureMode) ?? "editable-overlay";
-			if (recording && normalizedCursorCaptureMode === "editable-overlay") {
+			if (recording) {
 				const normalizedRecordingId =
 					typeof recordingId === "number" && Number.isFinite(recordingId)
 						? recordingId

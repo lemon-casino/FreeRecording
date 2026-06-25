@@ -825,6 +825,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			const displayId = Number(selectedSource.display_id);
 			const sourceType = selectedSource.id.startsWith("window:") ? "window" : "display";
 			const windowHandle = parseWindowHandleFromSourceId(selectedSource.id);
+			const sourceId =
+				typeof selectedSource.sourceId === "string" ? selectedSource.sourceId : selectedSource.id;
+			const hasCustomBounds =
+				selectedSource.id.startsWith("custom:") && Boolean(selectedSource.bounds);
 			let nativeWebcamEnabled = webcamEnabled;
 			if (webcamEnabled) {
 				const accessResult = await requestCameraAccess();
@@ -843,9 +847,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				recordingId: activeRecordingId,
 				source: {
 					type: sourceType,
-					sourceId: selectedSource.id,
+					sourceId,
 					...(Number.isFinite(displayId) ? { displayId } : {}),
 					...(windowHandle ? { windowHandle } : {}),
+					...(selectedSource.bounds ? { bounds: selectedSource.bounds } : {}),
+					...(hasCustomBounds ? { customBounds: true } : {}),
 				},
 				video: {
 					fps: videoProfile.fps,
@@ -944,6 +950,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			const displayId =
 				Number(selectedSource.display_id) || parseMacDisplayIdFromSourceId(selectedSource.id);
 			const windowId = parseMacWindowIdFromSourceId(selectedSource.id);
+			const sourceId =
+				typeof selectedSource.sourceId === "string" ? selectedSource.sourceId : selectedSource.id;
+			const hasCustomBounds =
+				selectedSource.id.startsWith("custom:") && Boolean(selectedSource.bounds);
 			let nativeWebcamEnabled = webcamEnabled;
 			if (webcamEnabled) {
 				const accessResult = await requestCameraAccess();
@@ -966,9 +976,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				recordingId: activeRecordingId,
 				source: {
 					type: sourceType,
-					sourceId: selectedSource.id,
+					sourceId,
 					...(displayId ? { displayId } : {}),
 					...(windowId ? { windowId } : {}),
+					...(selectedSource.bounds ? { bounds: selectedSource.bounds } : {}),
+					...(hasCustomBounds ? { customBounds: true } : {}),
 				},
 				video: {
 					fps: videoProfile.fps,

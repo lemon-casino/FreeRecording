@@ -63,6 +63,11 @@
 		"loading": "Caricamento sorgenti...",
 		"screens": "Schermi ({{count}})",
 		"windows": "Finestre ({{count}})",
+		"customRegion": "Area personalizzata",
+		"noScreens": "Nessuno schermo disponibile",
+		"emptyTitle": "Nessuno schermo o finestra trovato",
+		"emptyDescription": "Se hai appena concesso il permesso di registrazione schermo, ricarica questo selettore. Su macOS potrebbe essere necessario riaprire LikelySnap.",
+		"loadFailedDescription": "LikelySnap non è riuscito a caricare le sorgenti di registrazione. Ricarica il selettore e riprova.",
 		"defaultSourceName": "Schermo"
 	},
 	"recording": {

@@ -63,6 +63,11 @@
 		"loading": "Kaynaklar yükleniyor...",
 		"screens": "Ekranlar ({{count}})",
 		"windows": "Pencereler ({{count}})",
+		"customRegion": "Özel alan",
+		"noScreens": "Kullanılabilir ekran yok",
+		"emptyTitle": "Ekran veya pencere bulunamadı",
+		"emptyDescription": "Ekran kaydı iznini yeni verdiyseniz bu seçiciyi yeniden yükleyin. macOS'ta LikelySnap'i yeniden açmanız gerekebilir.",
+		"loadFailedDescription": "LikelySnap kayıt kaynaklarını yükleyemedi. Bu seçiciyi yeniden yükleyip tekrar deneyin.",
 		"defaultSourceName": "Ekran"
 	},
 	"recording": {

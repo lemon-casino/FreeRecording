@@ -43,6 +43,7 @@ public:
         ID3D11Device* device,
         ID3D11DeviceContext* context,
         const AudioInputFormat* audioFormat = nullptr);
+    void setSourceCrop(int x, int y);
     bool writeFrame(ID3D11Texture2D* texture, int64_t timestampHns, const BgraFrameView* webcamFrame = nullptr);
     bool writeBgraFrame(const BgraFrameView& frame, int64_t timestampHns);
     bool writeAudio(const BYTE* data, DWORD byteCount, int64_t timestampHns, int64_t durationHns);
@@ -77,6 +78,9 @@ private:
     int fps_ = 60;
     int64_t firstTimestampHns_ = -1;
     int64_t lastTimestampHns_ = -1;
+    bool hasSourceCrop_ = false;
+    int sourceCropX_ = 0;
+    int sourceCropY_ = 0;
     uint32_t darkFrameWarnings_ = 0;
     bool finalized_ = false;
 };

@@ -59,6 +59,11 @@
 		"loading": "Đang tải nguồn...",
 		"screens": "Màn hình ({{count}})",
 		"windows": "Cửa sổ ({{count}})",
+		"customRegion": "Vùng tùy chỉnh",
+		"noScreens": "Không có màn hình khả dụng",
+		"emptyTitle": "Không tìm thấy màn hình hoặc cửa sổ",
+		"emptyDescription": "Nếu bạn vừa cấp quyền ghi màn hình, hãy tải lại bộ chọn này. Trên macOS, bạn có thể cần mở lại LikelySnap.",
+		"loadFailedDescription": "LikelySnap không thể tải nguồn ghi. Hãy tải lại bộ chọn này rồi thử lại.",
 		"defaultSourceName": "Màn hình"
 	},
 	"recording": {

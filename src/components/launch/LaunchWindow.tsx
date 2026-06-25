@@ -45,6 +45,7 @@ import { AudioLevelMeter } from "../ui/audio-level-meter";
 import { Switch } from "../ui/switch";
 import { Tooltip } from "../ui/tooltip";
 import {
+	AUDIO_DEVICE_MENU_MAX_WIDTH,
 	AUDIO_DEVICE_ROW_GAP,
 	AUDIO_DEVICE_ROW_HEIGHT,
 	getAudioDeviceMenuLayout,
@@ -62,6 +63,18 @@ const WEBCAM_MENU_WIDTH = 440;
 const WEBCAM_MENU_MAX_HEIGHT = 600;
 const WEBCAM_MENU_CHROME_HEIGHT = 112;
 const FLOATING_MENU_GAP = 8;
+const HUD_OVERLAY_SIDE_MARGIN = 24;
+const HUD_OVERLAY_TOP_MARGIN = 24;
+const HUD_RESERVED_POPUP_WIDTH = Math.max(
+	LANGUAGE_MENU_WIDTH,
+	AUDIO_DEVICE_MENU_MAX_WIDTH,
+	WEBCAM_MENU_WIDTH,
+);
+const HUD_RESERVED_POPUP_HEIGHT = Math.max(
+	LANGUAGE_MENU_MAX_HEIGHT,
+	AUDIO_MENU_MAX_HEIGHT,
+	WEBCAM_MENU_MAX_HEIGHT,
+);
 
 const ICON_CONFIG = {
 	drag: { icon: GripVertical, size: ICON_SIZE },
@@ -175,7 +188,8 @@ export function LaunchWindow() {
 	const isDraggingHudRef = useRef(false);
 	const [languageMenuStyle, setLanguageMenuStyle] = useState<{
 		right: number;
-		top: number;
+		top?: number;
+		bottom?: number;
 		maxHeight: number;
 	}>({
 		right: 12,
@@ -184,7 +198,8 @@ export function LaunchWindow() {
 	});
 	const [audioMenuStyle, setAudioMenuStyle] = useState<{
 		left: number;
-		top: number;
+		top?: number;
+		bottom?: number;
 		width: number;
 		maxHeight: number;
 	}>({
@@ -195,7 +210,8 @@ export function LaunchWindow() {
 	});
 	const [webcamMenuStyle, setWebcamMenuStyle] = useState<{
 		left: number;
-		top: number;
+		top?: number;
+		bottom?: number;
 		width: number;
 		maxHeight: number;
 	}>({
@@ -405,15 +421,22 @@ export function LaunchWindow() {
 			const rect = languageTriggerRef.current.getBoundingClientRect();
 			const gap = FLOATING_MENU_GAP;
 			const viewportPadding = 8;
+			const availableAbove = rect.top - viewportPadding - gap;
+			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
+			const placeAbove = availableAbove >= 140 || availableAbove >= availableBelow;
 			const availableHeight = Math.min(
 				LANGUAGE_MENU_MAX_HEIGHT,
-				Math.max(140, rect.top - viewportPadding - gap),
+				Math.max(140, placeAbove ? availableAbove : availableBelow),
 			);
-			const top = Math.max(viewportPadding, rect.top - gap - availableHeight);
 
 			setLanguageMenuStyle({
 				right: Math.max(viewportPadding, window.innerWidth - rect.right),
-				top,
+				top: placeAbove
+					? undefined
+					: Math.min(window.innerHeight - viewportPadding - availableHeight, rect.bottom + gap),
+				bottom: placeAbove
+					? Math.max(viewportPadding, window.innerHeight - rect.top + gap)
+					: undefined,
 				maxHeight: availableHeight,
 			});
 		};
@@ -451,13 +474,15 @@ export function LaunchWindow() {
 				Math.max(viewportPadding, centeredLeft),
 				Math.max(viewportPadding, window.innerWidth - viewportPadding - panelWidth),
 			);
-			const top = placeAbove
-				? Math.max(viewportPadding, rect.top - gap - panelHeight)
-				: Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap);
 
 			setAudioMenuStyle({
 				left,
-				top,
+				top: placeAbove
+					? undefined
+					: Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap),
+				bottom: placeAbove
+					? Math.max(viewportPadding, window.innerHeight - rect.top + gap)
+					: undefined,
 				width: panelWidth,
 				maxHeight: panelHeight,
 			});
@@ -496,13 +521,15 @@ export function LaunchWindow() {
 				Math.max(viewportPadding, centeredLeft),
 				Math.max(viewportPadding, window.innerWidth - viewportPadding - panelWidth),
 			);
-			const top = placeAbove
-				? Math.max(viewportPadding, rect.top - gap - panelHeight)
-				: Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap);
 
 			setWebcamMenuStyle({
 				left,
-				top,
+				top: placeAbove
+					? undefined
+					: Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap),
+				bottom: placeAbove
+					? Math.max(viewportPadding, window.innerHeight - rect.top + gap)
+					: undefined,
 				width: panelWidth,
 				maxHeight: panelHeight,
 			});
@@ -552,8 +579,6 @@ export function LaunchWindow() {
 		// Breathing room so the drop shadow isn't clipped. TOP_MARGIN must also exceed the
 		// slack in the bar's `max-h: calc(100vh - 2.5rem)` cap (40px reserved - 20px bottom
 		// gap = 20px) so the window stays tall enough that the cap never engages and adds a scrollbar.
-		const SIDE_MARGIN = 24;
-		const TOP_MARGIN = 24;
 		// Wide enough that the language menu (11rem) never clips, even when the bar is narrow.
 		const MIN_WIDTH = 220;
 
@@ -562,8 +587,11 @@ export function LaunchWindow() {
 		// scrollHeight gives full content height; the cap only engages when the main process clamps to screen.
 		const barWidth = Math.ceil(barEl.scrollWidth);
 		const barHeight = Math.ceil(barEl.scrollHeight);
-		let contentWidth = barWidth;
-		let contentHeight = hudEdge === "top" || hudEdge === "bottom" ? barHeight + 20 : barHeight;
+		let contentWidth = Math.max(barWidth, HUD_RESERVED_POPUP_WIDTH);
+		let contentHeight =
+			hudEdge === "top" || hudEdge === "bottom"
+				? Math.max(barHeight + 20, barHeight + FLOATING_MENU_GAP + HUD_RESERVED_POPUP_HEIGHT)
+				: Math.max(barHeight, HUD_RESERVED_POPUP_HEIGHT);
 
 		// Popups are positioned in the same transparent HUD window as the bar. Reserve
 		// space for both the bar and the popup; measuring only the popup's clipped box
@@ -584,8 +612,8 @@ export function LaunchWindow() {
 		measurePopup(audioMenuPanelRef.current);
 		measurePopup(webcamMenuPanelRef.current);
 
-		const width = Math.max(MIN_WIDTH, contentWidth + SIDE_MARGIN * 2);
-		const height = contentHeight + TOP_MARGIN * 2;
+		const width = Math.max(MIN_WIDTH, contentWidth + HUD_OVERLAY_SIDE_MARGIN * 2);
+		const height = contentHeight + HUD_OVERLAY_TOP_MARGIN * 2;
 		if (width === lastHudSizeRef.current.width && height === lastHudSizeRef.current.height) {
 			return;
 		}
@@ -971,7 +999,11 @@ export function LaunchWindow() {
 										pointerEvents: "auto",
 										left: `${webcamMenuStyle.left}px`,
 										right: "auto",
-										top: `${webcamMenuStyle.top}px`,
+										top: webcamMenuStyle.top === undefined ? undefined : `${webcamMenuStyle.top}px`,
+										bottom:
+											webcamMenuStyle.bottom === undefined
+												? undefined
+												: `${webcamMenuStyle.bottom}px`,
 										maxHeight: `${webcamMenuStyle.maxHeight}px`,
 										width: `${webcamMenuTargetWidth}px`,
 										height: webcamMenuTargetHeight ? `${webcamMenuTargetHeight}px` : undefined,
@@ -1098,7 +1130,11 @@ export function LaunchWindow() {
 										pointerEvents: "auto",
 										left: `${audioMenuStyle.left}px`,
 										right: "auto",
-										top: `${audioMenuStyle.top}px`,
+										top: audioMenuStyle.top === undefined ? undefined : `${audioMenuStyle.top}px`,
+										bottom:
+											audioMenuStyle.bottom === undefined
+												? undefined
+												: `${audioMenuStyle.bottom}px`,
 										maxHeight: `${audioMenuStyle.maxHeight}px`,
 										width: `${audioMenuTargetWidth}px`,
 										height: audioMenuTargetHeight ? `${audioMenuTargetHeight}px` : undefined,
@@ -1358,7 +1394,14 @@ export function LaunchWindow() {
 											WebkitAppRegion: "no-drag",
 											pointerEvents: "auto",
 											right: `${languageMenuStyle.right}px`,
-											top: `${languageMenuStyle.top}px`,
+											top:
+												languageMenuStyle.top === undefined
+													? undefined
+													: `${languageMenuStyle.top}px`,
+											bottom:
+												languageMenuStyle.bottom === undefined
+													? undefined
+													: `${languageMenuStyle.bottom}px`,
 											maxHeight: `${languageMenuStyle.maxHeight}px`,
 											width: `${LANGUAGE_MENU_WIDTH}px`,
 										} as React.CSSProperties

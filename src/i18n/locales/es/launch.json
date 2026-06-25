@@ -63,6 +63,11 @@
 		"loading": "Cargando fuentes...",
 		"screens": "Pantallas ({{count}})",
 		"windows": "Ventanas ({{count}})",
+		"customRegion": "Área personalizada",
+		"noScreens": "No hay pantallas disponibles",
+		"emptyTitle": "No se encontraron pantallas ni ventanas",
+		"emptyDescription": "Si acabas de conceder permiso para grabar pantalla, recarga este selector. En macOS puede que debas volver a abrir LikelySnap.",
+		"loadFailedDescription": "LikelySnap no pudo cargar las fuentes de grabación. Recarga este selector e inténtalo de nuevo.",
 		"defaultSourceName": "Pantalla"
 	},
 	"recording": {

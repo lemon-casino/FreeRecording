@@ -64,6 +64,8 @@
 		"loading": "Loading sources...",
 		"screens": "Screens ({{count}})",
 		"windows": "Windows ({{count}})",
+		"customRegion": "Custom Area",
+		"noScreens": "No screens available",
 		"emptyTitle": "No screens or windows found",
 		"emptyDescription": "If you just granted screen recording permission, reload this picker. On macOS you may need to reopen LikelySnap.",
 		"loadFailedDescription": "LikelySnap could not load capture sources. Reload this picker and try again.",

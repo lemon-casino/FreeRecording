@@ -63,6 +63,11 @@
 		"loading": "Chargement des sources...",
 		"screens": "Écrans ({{count}})",
 		"windows": "Fenêtres ({{count}})",
+		"customRegion": "Zone personnalisée",
+		"noScreens": "Aucun écran disponible",
+		"emptyTitle": "Aucun écran ou fenêtre trouvé",
+		"emptyDescription": "Si vous venez d'accorder l'autorisation d'enregistrement d'écran, rechargez ce sélecteur. Sur macOS, vous devrez peut-être rouvrir LikelySnap.",
+		"loadFailedDescription": "LikelySnap n'a pas pu charger les sources d'enregistrement. Rechargez ce sélecteur puis réessayez.",
 		"defaultSourceName": "Écran"
 	},
 	"recording": {

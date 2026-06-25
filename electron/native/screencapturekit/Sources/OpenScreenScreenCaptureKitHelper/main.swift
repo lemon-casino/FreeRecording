@@ -19,6 +19,7 @@ struct RecordingRequest: Decodable {
 		let displayId: UInt32?
 		let windowId: UInt32?
 		let bounds: Rectangle?
+		let customBounds: Bool?
 	}
 
 	struct Video: Decodable {
@@ -421,11 +422,24 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 				throw HelperError.sourceNotFound("No ScreenCaptureKit display found for id \(displayId).")
 			}
 			let pixelSize = Self.pixelSize(for: display.displayID)
+			let scaleFactor = Self.scaleFactor(for: display.displayID)
+			let requestedBounds = request.source.customBounds == true ? request.source.bounds.map {
+				CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+			} : nil
+			let intersectedBounds = requestedBounds?.intersection(display.frame)
+			let captureBounds: CGRect
+			if let intersectedBounds, !intersectedBounds.isNull, !intersectedBounds.isEmpty {
+				captureBounds = intersectedBounds
+			} else {
+				captureBounds = display.frame
+			}
+			let captureWidth = Int(captureBounds.width) * scaleFactor
+			let captureHeight = Int(captureBounds.height) * scaleFactor
 			return CaptureTarget(
 				filter: SCContentFilter(display: display, excludingWindows: []),
-				width: shouldUseSourceResolution ? evenCaptureDimension(pixelSize.width, fallback: explicitWidth) : explicitWidth,
-				height: shouldUseSourceResolution ? evenCaptureDimension(pixelSize.height, fallback: explicitHeight) : explicitHeight,
-				bounds: display.frame
+				width: shouldUseSourceResolution ? evenCaptureDimension(captureWidth, fallback: pixelSize.width) : explicitWidth,
+				height: shouldUseSourceResolution ? evenCaptureDimension(captureHeight, fallback: pixelSize.height) : explicitHeight,
+				bounds: captureBounds
 			)
 		case "window":
 			guard let windowId = request.source.windowId else {
@@ -459,6 +473,9 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		configuration.queueDepth = 6
 		configuration.showsCursor = !request.video.hideSystemCursor
 		configuration.pixelFormat = kCVPixelFormatType_32BGRA
+		if request.source.type == "display", request.source.customBounds == true {
+			configuration.sourceRect = targetCaptureBounds
+		}
 		configuration.sampleRate = 48_000
 		configuration.channelCount = 2
 		configuration.excludesCurrentProcessAudio = true

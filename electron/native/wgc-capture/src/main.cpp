@@ -37,6 +37,7 @@ struct CaptureConfig {
     int bitrate = 0;
     MonitorBounds bounds{};
     bool hasDisplayBounds = false;
+    bool customBounds = false;
     bool captureSystemAudio = false;
     bool captureMic = false;
     bool captureCursor = false;
@@ -337,6 +338,7 @@ bool parseConfig(const std::string& json, CaptureConfig& config) {
     config.bounds.width = findInt(json, "displayW", 0);
     config.bounds.height = findInt(json, "displayH", 0);
     config.hasDisplayBounds = findBool(json, "hasDisplayBounds", false);
+    config.customBounds = findBool(json, "customBounds", false);
     config.captureSystemAudio = findBool(json, "captureSystemAudio", false);
     config.captureMic = findBool(json, "captureMic", false);
     config.captureCursor = findBool(json, "captureCursor", false);
@@ -404,6 +406,7 @@ int main(int argc, char* argv[]) {
     std::cout << "{\"event\":\"ready\",\"schemaVersion\":2}" << std::endl;
 
     WgcSession session;
+    HMONITOR captureMonitor = nullptr;
     if (config.sourceType == "display") {
         HMONITOR monitor = findMonitorForCapture(
             config.displayId,
@@ -416,6 +419,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "ERROR: Failed to initialize WGC display session" << std::endl;
             return 1;
         }
+        captureMonitor = monitor;
     } else if (config.sourceType == "window") {
         HWND window = parseWindowHandle(config.windowHandle);
         if (!window || !IsWindow(window)) {
@@ -443,6 +447,23 @@ int main(int argc, char* argv[]) {
     // matching resource dimensions.
     int width = session.captureWidth();
     int height = session.captureHeight();
+    bool useSourceCrop = false;
+    int sourceCropX = 0;
+    int sourceCropY = 0;
+    if (config.sourceType == "display" && config.customBounds &&
+        config.bounds.width > 0 && config.bounds.height > 0 && captureMonitor) {
+        MONITORINFO monitorInfo{};
+        monitorInfo.cbSize = sizeof(MONITORINFO);
+        if (GetMonitorInfoW(captureMonitor, &monitorInfo)) {
+            sourceCropX = std::max(0, config.bounds.x - static_cast<int>(monitorInfo.rcMonitor.left));
+            sourceCropY = std::max(0, config.bounds.y - static_cast<int>(monitorInfo.rcMonitor.top));
+            const int maxCropWidth = std::max(2, width - sourceCropX);
+            const int maxCropHeight = std::max(2, height - sourceCropY);
+            width = std::min(maxCropWidth, config.bounds.width);
+            height = std::min(maxCropHeight, config.bounds.height);
+            useSourceCrop = true;
+        }
+    }
     width = (std::max(2, width) / 2) * 2;
     height = (std::max(2, height) / 2) * 2;
     std::cout << "{\"event\":\"capture-format\",\"schemaVersion\":2,\"sourceType\":\""
@@ -536,6 +557,9 @@ int main(int argc, char* argv[]) {
             audioFormat ? &encoderAudioFormat : nullptr)) {
         std::cerr << "ERROR: Failed to initialize Media Foundation encoder" << std::endl;
         return 1;
+    }
+    if (useSourceCrop) {
+        encoder.setSourceCrop(sourceCropX, sourceCropY);
     }
 
     MFEncoder webcamEncoder;

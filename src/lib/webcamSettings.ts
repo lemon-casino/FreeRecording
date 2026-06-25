@@ -219,17 +219,9 @@ export function positionPresetToWebcamPosition(
 export function launchWebcamSettingsToPresentation(
 	settings: LaunchWebcamSettings,
 ): WebcamPresentationSettings {
-	if (settings.sceneMode === "education") {
-		return {
-			...DEFAULT_WEBCAM_PRESENTATION_SETTINGS,
-			layoutPreset: "dual-frame",
-			maskShape: "rectangle",
-			mirrored: settings.mirrored,
-			sizePreset: settings.sizePreset,
-			position: null,
-		};
-	}
-
+	// The launch tray only decides whether to record a camera and which device to use.
+	// Keep fresh recordings in picture-in-picture so Open Studio starts from the
+	// normal screen-first composition; users can switch to education/dual-frame there.
 	return {
 		layoutPreset: "picture-in-picture",
 		maskShape: settings.maskShape,

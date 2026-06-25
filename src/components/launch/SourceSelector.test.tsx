@@ -9,6 +9,7 @@ vi.mock("@/contexts/I18nContext", () => ({
 			return (key: string) => {
 				if (key === "actions.cancel") return "Cancel";
 				if (key === "actions.share") return "Share";
+				if (key === "actions.record") return "Record";
 				if (key === "actions.reload") return "Reload";
 				return key;
 			};
@@ -25,6 +26,8 @@ vi.mock("@/contexts/I18nContext", () => ({
 			}
 			if (key === "sourceSelector.screens") return `Screens (${vars?.count ?? "0"})`;
 			if (key === "sourceSelector.windows") return `Windows (${vars?.count ?? "0"})`;
+			if (key === "sourceSelector.customRegion") return "Custom Area";
+			if (key === "sourceSelector.noScreens") return "No screens available";
 			return key;
 		};
 	},
@@ -74,5 +77,43 @@ describe("SourceSelector", () => {
 			expect(screen.getByText("Display 1")).toBeInTheDocument();
 		});
 		expect(getSources).toHaveBeenCalledTimes(2);
+	});
+
+	it("selects a custom recording area with the original screen source and bounds", async () => {
+		const selectSource = vi.fn();
+		window.electronAPI = {
+			...window.electronAPI,
+			getSources: vi.fn().mockResolvedValue([
+				{
+					id: "screen:1:0",
+					name: "Display 1",
+					thumbnail: "data:image/png;base64,abc",
+					display_id: "1",
+					appIcon: null,
+					bounds: { x: 0, y: 0, width: 1000, height: 500 },
+				},
+			]),
+			selectSource,
+		} as typeof window.electronAPI;
+
+		render(<SourceSelector />);
+
+		await screen.findByText("Display 1");
+		const customTab = screen.getByRole("tab", { name: "Custom Area" });
+		fireEvent.pointerDown(customTab, { button: 0, ctrlKey: false, pointerType: "mouse" });
+		fireEvent.click(customTab);
+		const recordButton = screen.getByRole("button", { name: "Record" });
+		await waitFor(() => {
+			expect(recordButton).not.toBeDisabled();
+		});
+		fireEvent.click(recordButton);
+
+		expect(selectSource).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "custom:1:200:100:600:300",
+				sourceId: "screen:1:0",
+				bounds: { x: 200, y: 100, width: 600, height: 300 },
+			}),
+		);
 	});
 });

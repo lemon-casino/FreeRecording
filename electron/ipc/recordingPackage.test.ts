@@ -199,6 +199,37 @@ describe("recording package paths", () => {
 		});
 	});
 
+	it("round-trips system cursor mode for auto zoom telemetry without editable overlay", () => {
+		const packageDir = path.join(path.resolve("/r"), "recording-123.likelysnap");
+		const screenVideoPath = path.join(packageDir, "screen.mp4");
+		const manifest = buildRecordingPackageManifest(
+			{
+				screenVideoPath,
+				cursorCaptureMode: "system",
+				createdAt: 123,
+			},
+			"ready",
+		);
+
+		expect(manifest).toMatchObject({
+			media: {
+				screenVideoPath: "screen.mp4",
+				cursorTelemetryPath: "cursor.json",
+				cursorCaptureMode: "system",
+			},
+			recording: {
+				status: "ready",
+				cursorCaptureMode: "system",
+			},
+		});
+
+		expect(normalizeRecordingPackageManifest(manifest, packageDir)).toEqual({
+			screenVideoPath,
+			cursorCaptureMode: "system",
+			createdAt: 123,
+		});
+	});
+
 	it("keeps legacy package manifests with webcam.webm loadable", () => {
 		const packageDir = path.join(path.resolve("/r"), "recording-123.likelysnap");
 		const manifest = {
