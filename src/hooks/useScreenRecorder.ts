@@ -139,6 +139,7 @@ type NativeWindowsRecordingHandle = {
 	recordingId: number;
 	finalizing: boolean;
 	paused: boolean;
+	webcamEnabled: boolean;
 };
 
 type NativeMacRecordingHandle = {
@@ -146,6 +147,7 @@ type NativeMacRecordingHandle = {
 	finalizing: boolean;
 	paused: boolean;
 	captureStartedAtMs: number;
+	webcamEnabled: boolean;
 };
 
 function createRecordingVideoProfile(settings?: AppSettings | null): RecordingVideoProfile {
@@ -454,7 +456,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	]);
 
 	const runPostRecordingActions = useCallback(
-		async (session?: RecordingSession | null, path?: string) => {
+		async (
+			session?: RecordingSession | null,
+			path?: string,
+			options: { forceOpenStudio?: boolean } = {},
+		) => {
 			const savedVideoPath = session?.screenVideoPath ?? path;
 			const settings = appSettingsRef.current;
 
@@ -465,7 +471,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				}
 			}
 
-			if (settings?.postRecordingOpenStudio ?? true) {
+			if (options.forceOpenStudio || (settings?.postRecordingOpenStudio ?? true)) {
 				await window.electronAPI.switchToEditor();
 			}
 		},
@@ -576,7 +582,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 						await window.electronAPI.setCurrentVideoPath(result.path);
 					}
 
-					await runPostRecordingActions(result.session, result.path);
+					await runPostRecordingActions(result.session, result.path, {
+						forceOpenStudio: Boolean(activeWebcamRecorder),
+					});
 				} catch (error) {
 					console.error("Error saving recording:", error);
 				} finally {
@@ -639,7 +647,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					await window.electronAPI.setCurrentVideoPath(result.path);
 				}
 
-				await runPostRecordingActions(result.session, result.path);
+				await runPostRecordingActions(result.session, result.path, {
+					forceOpenStudio:
+						activeNativeRecording.webcamEnabled || Boolean(result.session?.webcamVideoPath),
+				});
 				return true;
 			} catch (error) {
 				console.error("Error saving native Windows recording:", error);
@@ -699,7 +710,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					await window.electronAPI.setCurrentVideoPath(result.path);
 				}
 
-				await runPostRecordingActions(result.session, result.path);
+				await runPostRecordingActions(result.session, result.path, {
+					forceOpenStudio:
+						activeNativeRecording.webcamEnabled || Boolean(result.session?.webcamVideoPath),
+				});
 				return true;
 			} catch (error) {
 				console.error("Error saving native macOS recording:", error);
@@ -980,6 +994,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				recordingId: result.recordingId,
 				finalizing: false,
 				paused: false,
+				webcamEnabled: nativeWebcamEnabled,
 			};
 			webcamRecorder.current = null;
 			accumulatedDurationMs.current = 0;
@@ -1115,6 +1130,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				finalizing: false,
 				paused: false,
 				captureStartedAtMs: result.captureStartedAtMs ?? Date.now(),
+				webcamEnabled: nativeWebcamEnabled,
 			};
 			webcamRecorder.current = null;
 			accumulatedDurationMs.current = 0;

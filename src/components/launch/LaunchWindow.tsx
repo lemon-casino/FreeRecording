@@ -15,7 +15,6 @@ import {
 	MousePointer2,
 	PauseCircle,
 	PlayCircle,
-	Plus,
 	RefreshCcw,
 	Rows3,
 	Settings,
@@ -36,19 +35,6 @@ import {
 	saveUserPreferences,
 	type TrayLayoutPreference,
 } from "@/lib/userPreferences";
-import {
-	getWebcamResolutionPresetValues,
-	WEBCAM_FRAME_RATE_OPTIONS,
-	WEBCAM_MASK_SHAPE_ORDER,
-	WEBCAM_POSITION_PRESET_ORDER,
-	WEBCAM_RESOLUTION_PRESET_ORDER,
-	WEBCAM_RESOLUTION_PRESETS,
-	type WebcamFrameRate,
-	type WebcamMaskShape,
-	type WebcamPositionPreset,
-	type WebcamResolutionPreset,
-	type WebcamSceneMode,
-} from "@/lib/webcamSettings";
 import { nativeBridgeClient } from "@/native";
 import { useAudioLevelMeter } from "../../hooks/useAudioLevelMeter";
 import { useCameraDevices } from "../../hooks/useCameraDevices";
@@ -69,15 +55,16 @@ import { openSourceSelectorWithPermissionRetry } from "./openSourceSelectorFlow"
 
 const ICON_SIZE = 20;
 
-// Vertical tray gap (px): bar's `bottom-5` (20px) plus an 8px gap.
-const HUD_DEVICE_POPUP_GAP = 28;
-// Horizontal layout: mirrors the `bottom-[68px]` class on the popup element.
-const HUD_DEVICE_POPUP_HORIZONTAL_BOTTOM = 68;
-const AUDIO_MENU_WIDTH = 224;
-const AUDIO_MENU_MAX_HEIGHT = 240;
-const WEBCAM_MENU_WIDTH = 304;
-const WEBCAM_MENU_MAX_HEIGHT = 436;
-const WEBCAM_DEVICE_LIST_MAX_HEIGHT = 168;
+const LANGUAGE_MENU_WIDTH = 240;
+const LANGUAGE_MENU_MAX_HEIGHT = 420;
+const AUDIO_MENU_WIDTH = 380;
+const AUDIO_MENU_MAX_HEIGHT = 460;
+const WEBCAM_MENU_WIDTH = 440;
+const WEBCAM_MENU_MAX_HEIGHT = 600;
+const WEBCAM_MENU_CHROME_HEIGHT = 112;
+const WEBCAM_PREVIEW_WIDTH = 184;
+const WEBCAM_PREVIEW_HEIGHT = 116;
+const WEBCAM_PREVIEW_VIEWPORT_PADDING = 10;
 
 const ICON_CONFIG = {
 	drag: { icon: GripVertical, size: ICON_SIZE },
@@ -152,8 +139,6 @@ export function LaunchWindow() {
 		setSystemAudioEnabled,
 		webcamEnabled,
 		setWebcamEnabled,
-		webcamSettings,
-		setWebcamSettings,
 		webcamPreviewStream,
 		webcamDeviceId,
 		setWebcamDeviceId,
@@ -195,8 +180,15 @@ export function LaunchWindow() {
 	const hudBarRef = useRef<HTMLDivElement | null>(null);
 	const deviceSelectorRef = useRef<HTMLDivElement | null>(null);
 	const isDraggingHudRef = useRef(false);
-	// Measured bar height, anchors the popups above the tall vertical tray so they don't overlap it.
-	const [hudBarHeight, setHudBarHeight] = useState(0);
+	const webcamPreviewDragRef = useRef<{
+		pointerId: number;
+		offsetX: number;
+		offsetY: number;
+	} | null>(null);
+	const [webcamPreviewPosition, setWebcamPreviewPosition] = useState<{
+		left: number;
+		top: number;
+	} | null>(null);
 	const [languageMenuStyle, setLanguageMenuStyle] = useState<{
 		right: number;
 		top: number;
@@ -261,43 +253,14 @@ export function LaunchWindow() {
 			: cameraDevices.length === 0
 				? t("webcam.noneFound")
 				: selectedCameraDevice?.label || t("webcam.defaultCamera");
-	const webcamResolutionLabel =
-		WEBCAM_RESOLUTION_PRESETS[webcamSettings.resolutionPreset]?.label ??
-		WEBCAM_RESOLUTION_PRESETS["720p"].label;
-	const webcamSceneModeLabels: Record<WebcamSceneMode, string> = {
-		standard: t("webcam.standardScene"),
-		education: t("webcam.educationScene"),
-	};
-	const webcamPositionLabels: Record<WebcamPositionPreset, string> = {
-		"bottom-right": t("webcam.positionBottomRight"),
-		"bottom-left": t("webcam.positionBottomLeft"),
-		"top-right": t("webcam.positionTopRight"),
-		"top-left": t("webcam.positionTopLeft"),
-	};
-	const webcamMaskShapeLabels: Record<WebcamMaskShape, string> = {
-		circle: t("webcam.shapeCircle"),
-		rounded: t("webcam.shapeRounded"),
-		rectangle: t("webcam.shapeRectangle"),
-		square: t("webcam.shapeSquare"),
-	};
-	const webcamPreviewBaseSize = Math.max(92, Math.min(172, 72 + webcamSettings.sizePreset * 2));
-	const webcamPreviewIsSquare =
-		webcamSettings.sceneMode !== "education" &&
-		(webcamSettings.maskShape === "circle" || webcamSettings.maskShape === "square");
-	const webcamPreviewWidth = webcamPreviewIsSquare
-		? webcamPreviewBaseSize
-		: Math.round(webcamPreviewBaseSize * 1.45);
-	const webcamPreviewHeight = webcamPreviewIsSquare
-		? webcamPreviewBaseSize
-		: Math.round(webcamPreviewBaseSize * 0.82);
-	const webcamPreviewRadiusClass =
-		webcamSettings.sceneMode === "education"
-			? "rounded-2xl"
-			: webcamSettings.maskShape === "circle"
-				? "rounded-full"
-				: webcamSettings.maskShape === "rounded"
-					? "rounded-[22%]"
-					: "rounded-lg";
+	const webcamDeviceMenuLayout = getAudioDeviceMenuLayout(
+		cameraDevices.length,
+		webcamMenuStyle.maxHeight,
+		WEBCAM_MENU_CHROME_HEIGHT,
+	);
+	const webcamPreviewWidth = WEBCAM_PREVIEW_WIDTH;
+	const webcamPreviewHeight = WEBCAM_PREVIEW_HEIGHT;
+	const webcamPreviewBorderRadius = "18px";
 
 	const { level } = useAudioLevelMeter({
 		enabled: audioMeterEnabled,
@@ -474,7 +437,10 @@ export function LaunchWindow() {
 			const rect = languageTriggerRef.current.getBoundingClientRect();
 			const gap = 8;
 			const viewportPadding = 8;
-			const availableHeight = Math.max(80, rect.top - viewportPadding - gap);
+			const availableHeight = Math.min(
+				LANGUAGE_MENU_MAX_HEIGHT,
+				Math.max(140, rect.top - viewportPadding - gap),
+			);
 			const top = Math.max(viewportPadding, rect.top - gap - availableHeight);
 
 			setLanguageMenuStyle({
@@ -505,7 +471,10 @@ export function LaunchWindow() {
 			const availableAbove = rect.top - viewportPadding - gap;
 			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
 			const placeAbove = availableAbove >= 180 || availableAbove >= availableBelow;
-			const availableHeight = Math.max(120, placeAbove ? availableAbove : availableBelow);
+			const availableHeight = Math.min(
+				AUDIO_MENU_MAX_HEIGHT,
+				Math.max(180, placeAbove ? availableAbove : availableBelow),
+			);
 			const panelWidth =
 				isAudioDeviceListOpen && microphoneEnabled
 					? audioDeviceMenuLayout.menuWidth
@@ -558,7 +527,10 @@ export function LaunchWindow() {
 			const availableAbove = rect.top - viewportPadding - gap;
 			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
 			const placeAbove = availableAbove >= 260 || availableAbove >= availableBelow;
-			const availableHeight = Math.max(180, placeAbove ? availableAbove : availableBelow);
+			const availableHeight = Math.min(
+				WEBCAM_MENU_MAX_HEIGHT,
+				Math.max(260, placeAbove ? availableAbove : availableBelow),
+			);
 			const panelHeight = Math.min(WEBCAM_MENU_MAX_HEIGHT, availableHeight);
 			const centeredLeft = rect.left + rect.width / 2 - WEBCAM_MENU_WIDTH / 2;
 			const left = Math.min(
@@ -641,11 +613,8 @@ export function LaunchWindow() {
 		if (deviceSelectorRef.current) {
 			const rect = deviceSelectorRef.current.getBoundingClientRect();
 			if (rect.width !== 0 || rect.height !== 0) {
-				contentWidth = Math.max(contentWidth, Math.ceil(rect.width));
-				contentHeight =
-					trayLayout === "vertical"
-						? Math.max(contentHeight, barHeight + HUD_DEVICE_POPUP_GAP + Math.ceil(rect.height))
-						: Math.max(contentHeight, HUD_DEVICE_POPUP_HORIZONTAL_BOTTOM + Math.ceil(rect.height));
+				contentWidth = Math.max(contentWidth, Math.ceil(rect.left + rect.width));
+				contentHeight = Math.max(contentHeight, Math.ceil(rect.top + rect.height));
 			}
 		}
 
@@ -667,11 +636,6 @@ export function LaunchWindow() {
 			contentHeight = Math.max(contentHeight, Math.ceil(rect.height));
 		}
 
-		setHudBarHeight((prev) => {
-			const next = Math.round(barHeight);
-			return Math.abs(prev - next) > 1 ? next : prev;
-		});
-
 		const width = Math.max(MIN_WIDTH, contentWidth + SIDE_MARGIN * 2);
 		const height = contentHeight + TOP_MARGIN * 2;
 		if (width === lastHudSizeRef.current.width && height === lastHudSizeRef.current.height) {
@@ -679,7 +643,7 @@ export function LaunchWindow() {
 		}
 		lastHudSizeRef.current = { width, height };
 		window.electronAPI.setHudOverlaySize(width, height);
-	}, [hudEdge, trayLayout]);
+	}, [hudEdge]);
 
 	// One persistent observer; elements wire themselves up via callback refs as they
 	// mount/unmount so measurement re-runs without recreating it or threading mount state through deps.
@@ -828,19 +792,89 @@ export function LaunchWindow() {
 		}
 	};
 
-	const selectWebcamResolution = (resolutionPreset: WebcamResolutionPreset) => {
-		const resolution = getWebcamResolutionPresetValues(resolutionPreset);
-		setWebcamSettings({
-			resolutionPreset,
-			width: resolution.width,
-			height: resolution.height,
+	const clampWebcamPreviewPosition = useCallback((left: number, top: number) => {
+		const padding = WEBCAM_PREVIEW_VIEWPORT_PADDING;
+		const maxLeft = Math.max(padding, window.innerWidth - webcamPreviewWidth - padding);
+		const maxTop = Math.max(padding, window.innerHeight - webcamPreviewHeight - padding);
+		return {
+			left: Math.min(Math.max(padding, Math.round(left)), maxLeft),
+			top: Math.min(Math.max(padding, Math.round(top)), maxTop),
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!showWebcamPreview) {
+			webcamPreviewDragRef.current = null;
+			return;
+		}
+
+		setWebcamPreviewPosition((current) => {
+			if (current) {
+				return clampWebcamPreviewPosition(current.left, current.top);
+			}
+
+			return clampWebcamPreviewPosition(
+				(window.innerWidth - webcamPreviewWidth) / 2,
+				Math.max(WEBCAM_PREVIEW_VIEWPORT_PADDING, (window.innerHeight - webcamPreviewHeight) / 2),
+			);
 		});
+	}, [clampWebcamPreviewPosition, showWebcamPreview]);
+
+	useEffect(() => {
+		if (!showWebcamPreview) return;
+
+		const handleResize = () => {
+			setWebcamPreviewPosition((current) =>
+				current ? clampWebcamPreviewPosition(current.left, current.top) : current,
+			);
+		};
+
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
+	}, [clampWebcamPreviewPosition, showWebcamPreview]);
+
+	const handleWebcamPreviewPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+		if ((event.target as HTMLElement | null)?.closest("button")) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const rect = event.currentTarget.getBoundingClientRect();
+		webcamPreviewDragRef.current = {
+			pointerId: event.pointerId,
+			offsetX: event.clientX - rect.left,
+			offsetY: event.clientY - rect.top,
+		};
+		event.currentTarget.setPointerCapture(event.pointerId);
+		setHudMouseEventsEnabled(true);
 	};
 
-	const adjustWebcamSize = (delta: number) => {
-		setWebcamSettings({
-			sizePreset: Math.max(10, Math.min(50, webcamSettings.sizePreset + delta)),
-		});
+	const handleWebcamPreviewPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+		const drag = webcamPreviewDragRef.current;
+		if (!drag || drag.pointerId !== event.pointerId) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		setHudMouseEventsEnabled(true);
+		setWebcamPreviewPosition(
+			clampWebcamPreviewPosition(event.clientX - drag.offsetX, event.clientY - drag.offsetY),
+		);
+	};
+
+	const handleWebcamPreviewPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+		const drag = webcamPreviewDragRef.current;
+		if (!drag || drag.pointerId !== event.pointerId) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		webcamPreviewDragRef.current = null;
+		if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+			event.currentTarget.releasePointerCapture(event.pointerId);
+		}
+		if (!isLanguageMenuOpen && !isAudioMenuOpen && !isWebcamMenuOpen) {
+			setHudMouseEventsEnabled(false);
+		}
 	};
 
 	const handleHudDragPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -892,7 +926,7 @@ export function LaunchWindow() {
 		<div
 			className="h-full w-full min-w-0 max-w-full overflow-x-hidden overflow-y-hidden bg-transparent"
 			onPointerMove={(event) => {
-				if (isDraggingHudRef.current) {
+				if (isDraggingHudRef.current || webcamPreviewDragRef.current) {
 					setHudMouseEventsEnabled(true);
 					return;
 				}
@@ -905,7 +939,7 @@ export function LaunchWindow() {
 				setHudMouseEventsEnabled(shouldCapture);
 			}}
 			onPointerLeave={() => {
-				if (isDraggingHudRef.current) {
+				if (isDraggingHudRef.current || webcamPreviewDragRef.current) {
 					return;
 				}
 				if (!isLanguageMenuOpen && !isAudioMenuOpen && !isWebcamMenuOpen) {
@@ -913,66 +947,44 @@ export function LaunchWindow() {
 				}
 			}}
 		>
-			{/* Webcam preview, fixed above HUD bar, viewport-relative, never clipped */}
-			{showWebcamPreview && (
+			{/* Pre-recording webcam preview. Recording hides it; Open Studio owns editing after save. */}
+			{showWebcamPreview && webcamPreviewPosition && (
 				<div
 					ref={setDeviceSelectorEl}
 					data-hud-interactive="true"
-					className={`fixed left-1/2 -translate-x-1/2 animate-mic-panel-in bg-transparent ${trayLayout === "vertical" ? "" : "bottom-[68px]"} ${styles.electronNoDrag}`}
+					className={`fixed animate-mic-panel-in bg-transparent ${styles.electronNoDrag}`}
 					style={
-						trayLayout === "vertical"
-							? // Sit above the tall vertical tray, anchored to the measured bar
-								// height. Matches the offset in measureHudSize.
-								{ bottom: hudBarHeight + HUD_DEVICE_POPUP_GAP }
-							: undefined
-					}
-				>
-					<div
-						className={`group relative overflow-hidden border border-white/20 bg-transparent shadow-[0_12px_30px_rgba(0,0,0,0.32)] ${webcamPreviewRadiusClass}`}
-						style={{
+						{
+							left: `${webcamPreviewPosition.left}px`,
+							top: `${webcamPreviewPosition.top}px`,
 							width: `${webcamPreviewWidth}px`,
 							height: `${webcamPreviewHeight}px`,
+							WebkitAppRegion: "no-drag",
+						} as React.CSSProperties
+					}
+					onPointerDown={handleWebcamPreviewPointerDown}
+					onPointerMove={handleWebcamPreviewPointerMove}
+					onPointerUp={handleWebcamPreviewPointerEnd}
+					onPointerCancel={handleWebcamPreviewPointerEnd}
+					onPointerEnter={() => setHudMouseEventsEnabled(true)}
+				>
+					<div
+						className="group relative h-full w-full cursor-grab active:cursor-grabbing"
+						style={{
+							filter: "drop-shadow(0 12px 30px rgba(0,0,0,0.32))",
 						}}
 					>
-						<video
-							ref={webcamPreviewVideoRef}
-							muted
-							playsInline
-							className={`h-full w-full object-cover ${webcamSettings.mirrored ? "-scale-x-100" : ""}`}
-						/>
-						<div className="absolute inset-x-1 top-1 flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-							<Tooltip content={t("webcam.shrinkPreview")}>
-								<button
-									type="button"
-									className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/85 backdrop-blur-md transition-colors hover:bg-black/70 disabled:opacity-35"
-									onClick={() => adjustWebcamSize(-5)}
-									disabled={webcamSettings.sizePreset <= 10}
-									aria-label={t("webcam.shrinkPreview")}
-								>
-									<Minus size={12} />
-								</button>
-							</Tooltip>
-							<Tooltip content={t("webcam.enlargePreview")}>
-								<button
-									type="button"
-									className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/85 backdrop-blur-md transition-colors hover:bg-black/70 disabled:opacity-35"
-									onClick={() => adjustWebcamSize(5)}
-									disabled={webcamSettings.sizePreset >= 50}
-									aria-label={t("webcam.enlargePreview")}
-								>
-									<Plus size={12} />
-								</button>
-							</Tooltip>
-							<Tooltip content={t("webcam.disableWebcam")}>
-								<button
-									type="button"
-									className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/85 backdrop-blur-md transition-colors hover:bg-black/70"
-									onClick={() => void toggleWebcamEnabled(false)}
-									aria-label={t("webcam.disableWebcam")}
-								>
-									<X size={12} />
-								</button>
-							</Tooltip>
+						<div
+							className="h-full w-full overflow-hidden border border-white/20 bg-transparent"
+							style={{ borderRadius: webcamPreviewBorderRadius }}
+						>
+							<video
+								ref={webcamPreviewVideoRef}
+								muted
+								playsInline
+								className="h-full w-full object-cover"
+								style={{ borderRadius: webcamPreviewBorderRadius }}
+							/>
 						</div>
 					</div>
 				</div>
@@ -1163,9 +1175,7 @@ export function LaunchWindow() {
 										<div className="min-w-0">
 											<div className="text-[11px] font-semibold">{t("webcam.menu")}</div>
 											<div className="truncate text-[10px] text-white/42">
-												{webcamEnabled
-													? `${selectedCameraLabel} · ${webcamResolutionLabel} · ${webcamSettings.fps}fps`
-													: t("webcam.notRecordingWebcam")}
+												{webcamEnabled ? selectedCameraLabel : t("webcam.notRecordingWebcam")}
 											</div>
 										</div>
 									</div>
@@ -1205,12 +1215,9 @@ export function LaunchWindow() {
 										<div
 											className="mt-1 grid overflow-y-auto pr-1"
 											style={{
-												gridTemplateColumns:
-													cameraDevices.length >= 4
-														? "repeat(2, minmax(0, 1fr))"
-														: "minmax(0, 1fr)",
+												gridTemplateColumns: `repeat(${webcamDeviceMenuLayout.columnCount}, minmax(0, 1fr))`,
 												gap: `${AUDIO_DEVICE_ROW_GAP}px`,
-												maxHeight: `${WEBCAM_DEVICE_LIST_MAX_HEIGHT}px`,
+												maxHeight: `${webcamDeviceMenuLayout.listMaxHeight}px`,
 											}}
 										>
 											{isCameraDevicesLoading ? (
@@ -1255,157 +1262,6 @@ export function LaunchWindow() {
 											)}
 										</div>
 									) : null}
-								</div>
-
-								<div className="mt-1 grid grid-cols-2 gap-1 border-t border-white/10 pt-1">
-									<label className="block rounded-lg px-2 py-1.5 text-white/75">
-										<span className="block text-[10px] font-medium uppercase text-white/35">
-											{t("webcam.resolution")}
-										</span>
-										<select
-											value={webcamSettings.resolutionPreset}
-											disabled={recording}
-											onChange={(event) =>
-												selectWebcamResolution(event.target.value as WebcamResolutionPreset)
-											}
-											className="mt-1 w-full appearance-none rounded-md border border-white/10 bg-white/[0.055] px-2 py-1 text-[11px] text-white outline-none transition-colors hover:bg-white/[0.075]"
-										>
-											{WEBCAM_RESOLUTION_PRESET_ORDER.map((preset) => (
-												<option key={preset} value={preset} className="bg-[#1c1c24]">
-													{WEBCAM_RESOLUTION_PRESETS[preset].label}
-												</option>
-											))}
-										</select>
-									</label>
-									<label className="block rounded-lg px-2 py-1.5 text-white/75">
-										<span className="block text-[10px] font-medium uppercase text-white/35">
-											{t("webcam.frameRate")}
-										</span>
-										<select
-											value={webcamSettings.fps}
-											disabled={recording}
-											onChange={(event) =>
-												setWebcamSettings({ fps: Number(event.target.value) as WebcamFrameRate })
-											}
-											className="mt-1 w-full appearance-none rounded-md border border-white/10 bg-white/[0.055] px-2 py-1 text-[11px] text-white outline-none transition-colors hover:bg-white/[0.075]"
-										>
-											{WEBCAM_FRAME_RATE_OPTIONS.map((fps) => (
-												<option key={fps} value={fps} className="bg-[#1c1c24]">
-													{fps} fps
-												</option>
-											))}
-										</select>
-									</label>
-								</div>
-
-								<div className="mt-1 border-t border-white/10 pt-1">
-									<div className="px-2 py-1">
-										<div className="mb-1 text-[10px] font-medium uppercase text-white/35">
-											{t("webcam.sceneMode")}
-										</div>
-										<div className="grid grid-cols-2 gap-1">
-											{(["standard", "education"] as WebcamSceneMode[]).map((mode) => (
-												<button
-													key={mode}
-													type="button"
-													disabled={recording}
-													aria-pressed={webcamSettings.sceneMode === mode}
-													onClick={() => setWebcamSettings({ sceneMode: mode })}
-													className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
-														webcamSettings.sceneMode === mode
-															? "border-[#C24B72]/45 bg-[#C24B72]/18 text-white"
-															: "border-white/10 bg-white/[0.04] text-white/62 hover:bg-white/[0.07]"
-													}`}
-												>
-													{webcamSceneModeLabels[mode]}
-												</button>
-											))}
-										</div>
-									</div>
-								</div>
-
-								<div className="mt-1 flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-white/80 hover:bg-white/[0.055]">
-									<span className="text-[11px] font-medium">{t("webcam.mirror")}</span>
-									<Switch
-										checked={webcamSettings.mirrored}
-										disabled={recording}
-										onCheckedChange={(mirrored) => setWebcamSettings({ mirrored })}
-										aria-label={t("webcam.mirror")}
-									/>
-								</div>
-
-								{webcamSettings.sceneMode === "standard" ? (
-									<div className="mt-1 grid grid-cols-2 gap-1 border-t border-white/10 pt-1">
-										<label className="block rounded-lg px-2 py-1.5 text-white/75">
-											<span className="block text-[10px] font-medium uppercase text-white/35">
-												{t("webcam.position")}
-											</span>
-											<select
-												value={webcamSettings.positionPreset}
-												disabled={recording}
-												onChange={(event) =>
-													setWebcamSettings({
-														positionPreset: event.target.value as WebcamPositionPreset,
-													})
-												}
-												className="mt-1 w-full appearance-none rounded-md border border-white/10 bg-white/[0.055] px-2 py-1 text-[11px] text-white outline-none transition-colors hover:bg-white/[0.075]"
-											>
-												{WEBCAM_POSITION_PRESET_ORDER.map((preset) => (
-													<option key={preset} value={preset} className="bg-[#1c1c24]">
-														{webcamPositionLabels[preset]}
-													</option>
-												))}
-											</select>
-										</label>
-										<label className="block rounded-lg px-2 py-1.5 text-white/75">
-											<span className="block text-[10px] font-medium uppercase text-white/35">
-												{t("webcam.style")}
-											</span>
-											<select
-												value={webcamSettings.maskShape}
-												disabled={recording}
-												onChange={(event) =>
-													setWebcamSettings({ maskShape: event.target.value as WebcamMaskShape })
-												}
-												className="mt-1 w-full appearance-none rounded-md border border-white/10 bg-white/[0.055] px-2 py-1 text-[11px] text-white outline-none transition-colors hover:bg-white/[0.075]"
-											>
-												{WEBCAM_MASK_SHAPE_ORDER.map((shape) => (
-													<option key={shape} value={shape} className="bg-[#1c1c24]">
-														{webcamMaskShapeLabels[shape]}
-													</option>
-												))}
-											</select>
-										</label>
-									</div>
-								) : null}
-
-								<div className="mt-1 flex items-center justify-between gap-3 border-t border-white/10 px-2 pt-2 pb-1 text-white/80">
-									<div className="min-w-0">
-										<div className="text-[10px] font-medium uppercase text-white/35">
-											{t("webcam.size")}
-										</div>
-										<div className="text-[11px] font-medium">{webcamSettings.sizePreset}%</div>
-									</div>
-									<div className="flex items-center gap-1">
-										<button
-											type="button"
-											disabled={recording || webcamSettings.sizePreset <= 10}
-											onClick={() => adjustWebcamSize(-5)}
-											className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.045] text-white/70 transition-colors hover:bg-white/10 disabled:opacity-35"
-											aria-label={t("webcam.shrinkPreview")}
-										>
-											<Minus size={13} />
-										</button>
-										<button
-											type="button"
-											disabled={recording || webcamSettings.sizePreset >= 50}
-											onClick={() => adjustWebcamSize(5)}
-											className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.045] text-white/70 transition-colors hover:bg-white/10 disabled:opacity-35"
-											aria-label={t("webcam.enlargePreview")}
-										>
-											<Plus size={13} />
-										</button>
-									</div>
 								</div>
 							</div>,
 							document.body,
@@ -1685,6 +1541,7 @@ export function LaunchWindow() {
 											right: `${languageMenuStyle.right}px`,
 											top: `${languageMenuStyle.top}px`,
 											maxHeight: `${languageMenuStyle.maxHeight}px`,
+											width: `${LANGUAGE_MENU_WIDTH}px`,
 										} as React.CSSProperties
 									}
 									onPointerDown={(event) => event.stopPropagation()}

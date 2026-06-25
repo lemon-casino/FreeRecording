@@ -176,13 +176,18 @@ function buildSaveDiagnosticMessage(formatLabel: "GIF" | "Video", reason?: strin
 }
 
 function createInitialEditorStateForSession(session: ProjectMedia): EditorState {
+	const recordingInitialState: EditorState = {
+		...INITIAL_EDITOR_STATE,
+		padding: 0,
+		aspectRatio: "native",
+	};
 	const presentation = session.webcamPresentation;
 	if (!presentation) {
-		return INITIAL_EDITOR_STATE;
+		return recordingInitialState;
 	}
 
 	return {
-		...INITIAL_EDITOR_STATE,
+		...recordingInitialState,
 		webcamLayoutPreset: presentation.layoutPreset,
 		webcamMaskShape: presentation.maskShape,
 		webcamMirrored: presentation.mirrored,

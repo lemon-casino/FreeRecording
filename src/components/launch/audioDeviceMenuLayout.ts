@@ -1,11 +1,11 @@
-const AUDIO_DEVICE_MENU_WIDTH = 320;
-const AUDIO_DEVICE_MENU_COLUMN_WIDTH = 216;
+const AUDIO_DEVICE_MENU_WIDTH = 380;
+const AUDIO_DEVICE_MENU_COLUMN_WIDTH = 260;
 const AUDIO_DEVICE_MENU_MAX_COLUMNS = 3;
-const AUDIO_DEVICE_MENU_TARGET_ROWS = 5;
+const AUDIO_DEVICE_MENU_TARGET_ROWS = 6;
 const AUDIO_DEVICE_MENU_CHROME_HEIGHT = 132;
-export const AUDIO_DEVICE_ROW_HEIGHT = 44;
+export const AUDIO_DEVICE_ROW_HEIGHT = 52;
 export const AUDIO_DEVICE_ROW_GAP = 4;
-const AUDIO_DEVICE_LIST_MIN_HEIGHT = 56;
+const AUDIO_DEVICE_LIST_MIN_HEIGHT = 72;
 
 export interface AudioDeviceMenuLayout {
 	columnCount: number;
@@ -31,6 +31,7 @@ function getAudioDeviceColumnCount(deviceCount: number) {
 export function getAudioDeviceMenuLayout(
 	deviceCount: number,
 	maxPanelHeight?: number,
+	chromeHeight = AUDIO_DEVICE_MENU_CHROME_HEIGHT,
 ): AudioDeviceMenuLayout {
 	const normalizedDeviceCount = normalizeDeviceCount(deviceCount);
 	const columnCount = getAudioDeviceColumnCount(normalizedDeviceCount);
@@ -38,11 +39,11 @@ export function getAudioDeviceMenuLayout(
 	const listNaturalHeight =
 		rowCount * AUDIO_DEVICE_ROW_HEIGHT + Math.max(0, rowCount - 1) * AUDIO_DEVICE_ROW_GAP;
 	const menuWidth = Math.max(AUDIO_DEVICE_MENU_WIDTH, columnCount * AUDIO_DEVICE_MENU_COLUMN_WIDTH);
-	const menuNaturalHeight = AUDIO_DEVICE_MENU_CHROME_HEIGHT + listNaturalHeight;
+	const menuNaturalHeight = chromeHeight + listNaturalHeight;
 	const listAvailableHeight =
 		maxPanelHeight === undefined || !Number.isFinite(maxPanelHeight)
 			? listNaturalHeight
-			: Math.max(AUDIO_DEVICE_LIST_MIN_HEIGHT, maxPanelHeight - AUDIO_DEVICE_MENU_CHROME_HEIGHT);
+			: Math.max(AUDIO_DEVICE_LIST_MIN_HEIGHT, maxPanelHeight - chromeHeight);
 
 	return {
 		columnCount,

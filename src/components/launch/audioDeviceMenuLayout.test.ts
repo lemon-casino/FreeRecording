@@ -11,10 +11,10 @@ describe("getAudioDeviceMenuLayout", () => {
 	});
 
 	it("adds columns so the device list height follows the row count", () => {
-		const layout = getAudioDeviceMenuLayout(6);
+		const layout = getAudioDeviceMenuLayout(7);
 
 		expect(layout.columnCount).toBe(2);
-		expect(layout.rowCount).toBe(3);
+		expect(layout.rowCount).toBe(4);
 	});
 
 	it("caps at three columns for dense microphone setups", () => {
