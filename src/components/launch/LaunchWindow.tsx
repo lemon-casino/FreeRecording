@@ -54,6 +54,8 @@ const ICON_SIZE = 20;
 const HUD_DEVICE_POPUP_GAP = 28;
 // Horizontal layout: mirrors the `bottom-[68px]` class on the popup element.
 const HUD_DEVICE_POPUP_HORIZONTAL_BOTTOM = 68;
+const AUDIO_MENU_WIDTH = 224;
+const AUDIO_MENU_MAX_HEIGHT = 240;
 
 const ICON_CONFIG = {
 	drag: { icon: GripVertical, size: ICON_SIZE },
@@ -143,6 +145,7 @@ export function LaunchWindow() {
 	const webcamExpanded = isWebcamHovered || isWebcamFocused;
 	const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
 	const [isAudioMenuOpen, setIsAudioMenuOpen] = useState(false);
+	const [isAudioDeviceListOpen, setIsAudioDeviceListOpen] = useState(false);
 	const [trayLayoutPreference, setTrayLayoutPreference] = useState<TrayLayoutPreference>(
 		() => loadUserPreferences().trayLayout,
 	);
@@ -177,13 +180,13 @@ export function LaunchWindow() {
 		maxHeight: 240,
 	});
 	const [audioMenuStyle, setAudioMenuStyle] = useState<{
-		right: number;
+		left: number;
 		top: number;
 		maxHeight: number;
 	}>({
-		right: 12,
+		left: 12,
 		top: 12,
-		maxHeight: 280,
+		maxHeight: AUDIO_MENU_MAX_HEIGHT,
 	});
 
 	const {
@@ -200,6 +203,10 @@ export function LaunchWindow() {
 	} = useCameraDevices(webcamEnabled);
 
 	const audioEnabled = microphoneEnabled || systemAudioEnabled;
+	const selectedMicDevice = micDevices.find(
+		(device) => device.deviceId === (microphoneDeviceId || selectedMicId),
+	);
+	const selectedMicLabel = selectedMicDevice?.label || t("audio.defaultMicrophone");
 	const selectedCameraDevice = cameraDevices.find(
 		(d) => d.deviceId === (webcamDeviceId || selectedCameraId),
 	);
@@ -394,14 +401,20 @@ export function LaunchWindow() {
 			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
 			const placeAbove = availableAbove >= 180 || availableAbove >= availableBelow;
 			const availableHeight = Math.max(120, placeAbove ? availableAbove : availableBelow);
+			const panelHeight = Math.min(AUDIO_MENU_MAX_HEIGHT, availableHeight);
+			const centeredLeft = rect.left + rect.width / 2 - AUDIO_MENU_WIDTH / 2;
+			const left = Math.min(
+				Math.max(viewportPadding, centeredLeft),
+				Math.max(viewportPadding, window.innerWidth - viewportPadding - AUDIO_MENU_WIDTH),
+			);
 			const top = placeAbove
-				? Math.max(viewportPadding, rect.top - gap - availableHeight)
-				: Math.min(window.innerHeight - viewportPadding - availableHeight, rect.bottom + gap);
+				? Math.max(viewportPadding, rect.top - gap - panelHeight)
+				: Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap);
 
 			setAudioMenuStyle({
-				right: Math.max(viewportPadding, window.innerWidth - rect.right),
+				left,
 				top,
-				maxHeight: availableHeight,
+				maxHeight: panelHeight,
 			});
 		};
 
@@ -414,6 +427,12 @@ export function LaunchWindow() {
 			window.removeEventListener("scroll", updatePosition, true);
 		};
 	}, [isAudioMenuOpen]);
+
+	useEffect(() => {
+		if (!isAudioMenuOpen || !microphoneEnabled) {
+			setIsAudioDeviceListOpen(false);
+		}
+	}, [isAudioMenuOpen, microphoneEnabled]);
 
 	useEffect(() => {
 		if (!isLanguageMenuOpen || !languageMenuPanelRef.current) return;
@@ -935,10 +954,11 @@ export function LaunchWindow() {
 									{
 										WebkitAppRegion: "no-drag",
 										pointerEvents: "auto",
-										right: `${audioMenuStyle.right}px`,
+										left: `${audioMenuStyle.left}px`,
+										right: "auto",
 										top: `${audioMenuStyle.top}px`,
 										maxHeight: `${audioMenuStyle.maxHeight}px`,
-										width: "16rem",
+										width: `${AUDIO_MENU_WIDTH}px`,
 									} as React.CSSProperties
 								}
 								onPointerDown={(event) => event.stopPropagation()}
@@ -949,9 +969,6 @@ export function LaunchWindow() {
 									event.stopPropagation();
 								}}
 							>
-								<div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase text-white/35">
-									{t("audio.menu")}
-								</div>
 								<div className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-white/80 hover:bg-white/[0.055]">
 									<div className="flex min-w-0 items-center gap-2">
 										<Volume2 size={14} className="shrink-0 text-white/55" />
@@ -983,36 +1000,59 @@ export function LaunchWindow() {
 									/>
 								</div>
 								{microphoneEnabled ? (
-									<div className="mt-2 border-t border-white/10 pt-2">
-										<div className="px-2 pb-1 text-[10px] font-semibold uppercase text-white/35">
-											{t("audio.microphoneDevice")}
-										</div>
-										<div className="max-h-32 overflow-y-auto pr-1">
-											{micDevices.length > 0 ? (
-												micDevices.map((device) => {
-													const selected =
-														device.deviceId === (microphoneDeviceId || selectedMicId);
-													return (
-														<button
-															key={device.deviceId}
-															type="button"
-															role="menuitemradio"
-															aria-checked={selected}
-															onClick={() => selectMicrophoneDevice(device.deviceId)}
-															className={`${styles.languageMenuItem} ${selected ? styles.languageMenuItemActive : ""}`}
-														>
-															<span className="truncate">{device.label}</span>
-															{selected ? <Check size={11} className="text-white/85" /> : null}
-														</button>
-													);
-												})
-											) : (
-												<div className="px-2 py-1.5 text-[11px] text-white/45">
-													{t("audio.noMicrophones")}
+									<div className="mt-1 border-t border-white/10 pt-1">
+										<button
+											type="button"
+											className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-white/75 transition-colors hover:bg-white/[0.055]"
+											onClick={() => setIsAudioDeviceListOpen((open) => !open)}
+											aria-expanded={isAudioDeviceListOpen}
+										>
+											<div className="min-w-0">
+												<div className="text-[10px] font-medium uppercase text-white/35">
+													{t("audio.microphoneDevice")}
 												</div>
-											)}
-										</div>
-										<div className="mt-2 px-2">
+												<div className="truncate text-[11px] font-medium">{selectedMicLabel}</div>
+											</div>
+											<ChevronDown
+												size={13}
+												className={`shrink-0 text-white/45 transition-transform ${
+													isAudioDeviceListOpen ? "rotate-180" : ""
+												}`}
+											/>
+										</button>
+										{isAudioDeviceListOpen ? (
+											<div className="mt-1 max-h-28 overflow-y-auto pr-1">
+												{micDevices.length > 0 ? (
+													micDevices.map((device) => {
+														const selected =
+															device.deviceId === (microphoneDeviceId || selectedMicId);
+														return (
+															<button
+																key={device.deviceId}
+																type="button"
+																role="menuitemradio"
+																aria-checked={selected}
+																onClick={() => {
+																	selectMicrophoneDevice(device.deviceId);
+																	setIsAudioDeviceListOpen(false);
+																}}
+																className={`${styles.languageMenuItem} ${selected ? styles.languageMenuItemActive : ""}`}
+															>
+																<span className="truncate">{device.label}</span>
+																{selected ? (
+																	<Check size={11} className="shrink-0 text-white/85" />
+																) : null}
+															</button>
+														);
+													})
+												) : (
+													<div className="px-2 py-1.5 text-[11px] text-white/45">
+														{t("audio.noMicrophones")}
+													</div>
+												)}
+											</div>
+										) : null}
+										<div className="mt-1.5 px-2 pb-0.5">
 											<AudioLevelMeter level={level} className="h-2 w-full" />
 										</div>
 									</div>
