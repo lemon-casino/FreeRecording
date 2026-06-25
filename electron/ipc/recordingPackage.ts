@@ -8,6 +8,10 @@ import {
 	normalizeCursorCaptureMode,
 	normalizeRecordingSession,
 } from "../../src/lib/recordingSession";
+import {
+	normalizeWebcamPresentationSettings,
+	type WebcamPresentationSettings,
+} from "../../src/lib/webcamSettings";
 
 export const RECORDING_PACKAGE_MANIFEST = "manifest.json";
 export const RECORDING_PACKAGE_SCREEN_VIDEO = "screen.mp4";
@@ -43,6 +47,7 @@ export type RecordingPackageManifest = {
 		screenVideoPath: string;
 		webcamVideoPath?: string;
 		webcamStartOffsetMs?: number;
+		webcamPresentation?: WebcamPresentationSettings;
 		cursorTelemetryPath?: string;
 		cursorCaptureMode?: CursorCaptureMode;
 	};
@@ -246,6 +251,7 @@ export function buildRecordingPackageManifest(
 			...(session.webcamStartOffsetMs !== undefined
 				? { webcamStartOffsetMs: session.webcamStartOffsetMs }
 				: {}),
+			...(session.webcamPresentation ? { webcamPresentation: session.webcamPresentation } : {}),
 			cursorTelemetryPath,
 			...(cursorCaptureMode ? { cursorCaptureMode } : {}),
 		},
@@ -291,6 +297,7 @@ export function normalizeRecordingPackageManifest(
 		? (resolveRecordingPackageChildPath(packageDir, webcamChild) ?? undefined)
 		: undefined;
 	const webcamStartOffsetMs = normalizeNonNegativeNumber(media?.webcamStartOffsetMs);
+	const webcamPresentation = normalizeWebcamPresentationSettings(media?.webcamPresentation);
 	const cursorCaptureMode =
 		normalizeCursorCaptureMode(media?.cursorCaptureMode) ??
 		normalizeCursorCaptureMode(raw.recording?.cursorCaptureMode);
@@ -299,6 +306,7 @@ export function normalizeRecordingPackageManifest(
 		screenVideoPath,
 		...(webcamVideoPath ? { webcamVideoPath } : {}),
 		...(webcamVideoPath && webcamStartOffsetMs !== undefined ? { webcamStartOffsetMs } : {}),
+		...(webcamVideoPath && webcamPresentation ? { webcamPresentation } : {}),
 		...(cursorCaptureMode ? { cursorCaptureMode } : {}),
 		createdAt:
 			typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)

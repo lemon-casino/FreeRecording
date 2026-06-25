@@ -33,6 +33,10 @@ import {
 	type RecordingSession,
 	type StoreRecordedSessionInput,
 } from "../../src/lib/recordingSession";
+import {
+	normalizeWebcamPresentationSettings,
+	type WebcamPresentationSettings,
+} from "../../src/lib/webcamSettings";
 import type {
 	CursorProviderKind,
 	CursorRecordingData,
@@ -1005,6 +1009,7 @@ type AttachNativeMacWebcamRecordingInput = {
 	webcam?: RecordedVideoAssetInput;
 	webcamStartOffsetMs?: number;
 	webcamDurationMs?: number;
+	webcamPresentation?: WebcamPresentationSettings;
 	cursorCaptureMode?: CursorCaptureMode;
 };
 
@@ -1128,6 +1133,7 @@ let nativeWindowsCaptureOutput = "";
 let nativeWindowsCaptureTargetPath: string | null = null;
 let nativeWindowsCaptureWebcamTargetPath: string | null = null;
 let nativeWindowsCaptureRecordingId: number | null = null;
+let nativeWindowsWebcamPresentation: WebcamPresentationSettings | undefined;
 let nativeWindowsCursorOffsetMs = 0;
 let nativeWindowsCursorCaptureMode: CursorCaptureMode = "editable-overlay";
 let nativeWindowsCursorRecordingStartMs = 0;
@@ -1142,6 +1148,7 @@ let nativeMacCaptureWebcamTargetPath: string | null = null;
 let nativeMacCaptureDiagnostics: Record<string, unknown> | null = null;
 let nativeMacCaptureRecordingId: number | null = null;
 let nativeMacCaptureBounds: Rectangle | null = null;
+let nativeMacWebcamPresentation: WebcamPresentationSettings | undefined;
 let nativeMacCursorOffsetMs = 0;
 let nativeMacCursorCaptureMode: CursorCaptureMode = "editable-overlay";
 let nativeMacCursorRecordingStartMs = 0;
@@ -3039,6 +3046,9 @@ export function registerIpcHandlers(
 					: null;
 				const cursorCaptureMode =
 					normalizeCursorCaptureMode(request.cursor?.mode) ?? "editable-overlay";
+				const webcamPresentation = request.webcam.enabled
+					? normalizeWebcamPresentationSettings(request.presentation)
+					: undefined;
 				const config = {
 					schemaVersion: 2,
 					recordingId,
@@ -3119,6 +3129,7 @@ export function registerIpcHandlers(
 					{
 						screenVideoPath: outputPath,
 						...(request.webcam.enabled ? { webcamVideoPath: webcamOutputPath } : {}),
+						...(webcamPresentation ? { webcamPresentation } : {}),
 						createdAt: recordingId,
 						cursorCaptureMode,
 					},
@@ -3128,6 +3139,7 @@ export function registerIpcHandlers(
 				nativeWindowsCaptureTargetPath = outputPath;
 				nativeWindowsCaptureWebcamTargetPath = request.webcam.enabled ? webcamOutputPath : null;
 				nativeWindowsCaptureRecordingId = recordingId;
+				nativeWindowsWebcamPresentation = webcamPresentation;
 				nativeWindowsCursorOffsetMs = 0;
 				nativeWindowsCursorCaptureMode = cursorCaptureMode;
 				nativeWindowsCursorRecordingStartMs = 0;
@@ -3207,6 +3219,7 @@ export function registerIpcHandlers(
 				nativeWindowsCaptureTargetPath = null;
 				nativeWindowsCaptureWebcamTargetPath = null;
 				nativeWindowsCaptureRecordingId = null;
+				nativeWindowsWebcamPresentation = undefined;
 				nativeWindowsCursorOffsetMs = 0;
 				nativeWindowsCursorCaptureMode = "editable-overlay";
 				nativeWindowsCursorRecordingStartMs = 0;
@@ -3278,8 +3291,10 @@ export function registerIpcHandlers(
 				packagePaths.packageDir,
 				RECORDING_PACKAGE_MAC_WEBCAM_VIDEO,
 			);
+			const webcamPresentation = request.webcam.enabled
+				? normalizeWebcamPresentationSettings(request.presentation)
+				: undefined;
 			const config: NativeMacRecordingRequest = {
-				...request,
 				schemaVersion: 1,
 				recordingId,
 				source: {
@@ -3290,6 +3305,7 @@ export function registerIpcHandlers(
 					...request.video,
 					hideSystemCursor: cursorCaptureMode === "editable-overlay",
 				},
+				audio: request.audio,
 				webcam: {
 					...request.webcam,
 				},
@@ -3327,6 +3343,8 @@ export function registerIpcHandlers(
 			await writeRecordingSessionManifest(
 				{
 					screenVideoPath: outputPath,
+					...(request.webcam.enabled ? { webcamVideoPath: macWebcamOutputPath } : {}),
+					...(webcamPresentation ? { webcamPresentation } : {}),
 					createdAt: recordingId,
 					cursorCaptureMode,
 				},
@@ -3338,6 +3356,7 @@ export function registerIpcHandlers(
 			nativeMacCaptureDiagnostics = null;
 			nativeMacCaptureRecordingId = recordingId;
 			nativeMacCaptureBounds = null;
+			nativeMacWebcamPresentation = webcamPresentation;
 			nativeMacCursorOffsetMs = 0;
 			nativeMacCursorCaptureMode = cursorCaptureMode;
 			nativeMacCursorRecordingStartMs = 0;
@@ -3423,6 +3442,7 @@ export function registerIpcHandlers(
 			nativeMacCaptureDiagnostics = null;
 			nativeMacCaptureRecordingId = null;
 			nativeMacCaptureBounds = null;
+			nativeMacWebcamPresentation = undefined;
 			nativeMacCursorOffsetMs = 0;
 			nativeMacCursorCaptureMode = "editable-overlay";
 			nativeMacCursorRecordingStartMs = 0;
@@ -3601,6 +3621,9 @@ export function registerIpcHandlers(
 				screenVideoPath,
 				...(webcamVideoPath ? { webcamVideoPath } : {}),
 				...(webcamStartOffsetMs !== undefined ? { webcamStartOffsetMs } : {}),
+				...(webcamVideoPath && nativeWindowsWebcamPresentation
+					? { webcamPresentation: nativeWindowsWebcamPresentation }
+					: {}),
 				createdAt: recordingId,
 				cursorCaptureMode,
 			};
@@ -3701,6 +3724,9 @@ export function registerIpcHandlers(
 				const session: RecordingSession = {
 					screenVideoPath,
 					...(webcamVideoPath ? { webcamVideoPath } : {}),
+					...(webcamVideoPath && nativeWindowsWebcamPresentation
+						? { webcamPresentation: nativeWindowsWebcamPresentation }
+						: {}),
 					createdAt: recordingId,
 					cursorCaptureMode,
 				};
@@ -3738,6 +3764,7 @@ export function registerIpcHandlers(
 			nativeWindowsCaptureTargetPath = null;
 			nativeWindowsCaptureWebcamTargetPath = null;
 			nativeWindowsCaptureRecordingId = null;
+			nativeWindowsWebcamPresentation = undefined;
 			nativeWindowsCursorOffsetMs = 0;
 			nativeWindowsCursorCaptureMode = "editable-overlay";
 			nativeWindowsCursorRecordingStartMs = 0;
@@ -3836,6 +3863,9 @@ export function registerIpcHandlers(
 			const session: RecordingSession = {
 				screenVideoPath,
 				...(webcamVideoPath ? { webcamVideoPath } : {}),
+				...(webcamVideoPath && nativeMacWebcamPresentation
+					? { webcamPresentation: nativeMacWebcamPresentation }
+					: {}),
 				createdAt: recordingId,
 				cursorCaptureMode,
 			};
@@ -3901,6 +3931,7 @@ export function registerIpcHandlers(
 			nativeMacCaptureWebcamTargetPath = null;
 			nativeMacCaptureRecordingId = null;
 			nativeMacCaptureBounds = null;
+			nativeMacWebcamPresentation = undefined;
 			nativeMacCursorOffsetMs = 0;
 			nativeMacCursorCaptureMode = "editable-overlay";
 			nativeMacCursorRecordingStartMs = 0;
@@ -3967,6 +3998,7 @@ export function registerIpcHandlers(
 						? payload.recordingId
 						: Date.now();
 				const cursorCaptureMode = normalizeCursorCaptureMode(payload.cursorCaptureMode);
+				const webcamPresentation = normalizeWebcamPresentationSettings(payload.webcamPresentation);
 				const webcamStartOffsetMs =
 					typeof payload.webcamStartOffsetMs === "number" &&
 					Number.isFinite(payload.webcamStartOffsetMs)
@@ -3977,6 +4009,7 @@ export function registerIpcHandlers(
 					webcamVideoPath,
 					createdAt,
 					...(webcamStartOffsetMs !== undefined ? { webcamStartOffsetMs } : {}),
+					...(webcamPresentation ? { webcamPresentation } : {}),
 					...(cursorCaptureMode ? { cursorCaptureMode } : {}),
 				};
 				const diagnostics = getNativeMacDiagnosticsForPath(screenVideoPath);
@@ -4030,6 +4063,7 @@ export function registerIpcHandlers(
 				? payload.createdAt
 				: Date.now();
 		const cursorCaptureMode = normalizeCursorCaptureMode(payload.cursorCaptureMode);
+		const webcamPresentation = normalizeWebcamPresentationSettings(payload.webcamPresentation);
 		const recordingDir = await getWritableRecordingsDir();
 		const screenVideoPath =
 			recordingStreams.getPath(payload.screen.fileName) ??
@@ -4074,6 +4108,7 @@ export function registerIpcHandlers(
 					screenVideoPath,
 					webcamVideoPath,
 					createdAt,
+					...(webcamPresentation ? { webcamPresentation } : {}),
 					...(cursorCaptureMode ? { cursorCaptureMode } : {}),
 				}
 			: { screenVideoPath, createdAt, ...(cursorCaptureMode ? { cursorCaptureMode } : {}) };

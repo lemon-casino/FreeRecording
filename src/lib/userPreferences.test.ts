@@ -109,4 +109,50 @@ describe("user preferences", () => {
 
 		expect(loadUserPreferences().trayLayout).toBe(DEFAULT_PREFS.trayLayout);
 	});
+
+	it("persists normalized webcam settings", () => {
+		saveUserPreferences({
+			webcamSettings: {
+				resolutionPreset: "1080p",
+				width: 1920,
+				height: 1080,
+				fps: 60,
+				sceneMode: "education",
+				mirrored: true,
+				maskShape: "circle",
+				positionPreset: "top-left",
+				sizePreset: 34,
+			},
+		});
+
+		expect(loadUserPreferences().webcamSettings).toEqual({
+			resolutionPreset: "1080p",
+			width: 1920,
+			height: 1080,
+			fps: 60,
+			sceneMode: "education",
+			mirrored: true,
+			maskShape: "circle",
+			positionPreset: "top-left",
+			sizePreset: 34,
+		});
+	});
+
+	it("falls back to default webcam settings for invalid stored values", () => {
+		localStorage.setItem(
+			"openscreen_user_preferences",
+			JSON.stringify({
+				webcamSettings: {
+					resolutionPreset: "8k",
+					fps: 120,
+					sceneMode: "unknown",
+					maskShape: "diamond",
+					positionPreset: "center",
+					sizePreset: "large",
+				},
+			}),
+		);
+
+		expect(loadUserPreferences().webcamSettings).toEqual(DEFAULT_PREFS.webcamSettings);
+	});
 });

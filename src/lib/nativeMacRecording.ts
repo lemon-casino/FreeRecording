@@ -1,6 +1,7 @@
 import type { Rectangle } from "electron";
 import type { RecordingResolutionMode } from "./appSettings";
 import type { CursorCaptureMode } from "./recordingSession";
+import type { WebcamPresentationSettings } from "./webcamSettings";
 
 export type NativeMacSourceType = "display" | "window";
 
@@ -45,6 +46,7 @@ export type NativeMacRecordingRequest = {
 		height: number;
 		fps: number;
 	};
+	presentation?: WebcamPresentationSettings;
 	cursor: {
 		mode: CursorCaptureMode;
 	};

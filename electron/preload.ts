@@ -181,6 +181,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 		webcam: { fileName: string; videoData?: ArrayBuffer };
 		webcamStartOffsetMs?: number;
 		webcamDurationMs?: number;
+		webcamPresentation?: import("../src/lib/webcamSettings").WebcamPresentationSettings;
 		cursorCaptureMode?: import("../src/lib/recordingSession").CursorCaptureMode;
 	}) => {
 		return ipcRenderer.invoke("attach-native-mac-webcam-recording", payload);

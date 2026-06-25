@@ -20,6 +20,12 @@ import {
 import { getRecordingPackageChildPath } from "@/lib/recordingPackageNaming";
 import type { CursorCaptureMode, RecordingSession } from "@/lib/recordingSession";
 import { requestCameraAccess } from "@/lib/requestCameraAccess";
+import { loadUserPreferences, saveUserPreferences } from "@/lib/userPreferences";
+import {
+	type LaunchWebcamSettings,
+	launchWebcamSettingsToPresentation,
+	normalizeLaunchWebcamSettings,
+} from "@/lib/webcamSettings";
 import { createRecorderHandle, type RecorderHandle } from "./recorderHandle";
 
 const MIN_FRAME_RATE = 1;
@@ -89,7 +95,6 @@ const AUDIO_BITRATE_SYSTEM = 192_000;
 const WEBCAM_FALLBACK_VIDEO_BITRATE = 2_500_000;
 
 const MIC_GAIN_BOOST = 1.4;
-const WEBCAM_TARGET_FRAME_RATE = 30;
 
 type RecordingVideoProfile = {
 	quality: RecordingQuality;
@@ -123,6 +128,9 @@ type UseScreenRecorderReturn = {
 	setSystemAudioEnabled: (enabled: boolean) => void;
 	webcamEnabled: boolean;
 	setWebcamEnabled: (enabled: boolean) => Promise<boolean>;
+	webcamSettings: LaunchWebcamSettings;
+	setWebcamSettings: (partial: Partial<LaunchWebcamSettings>) => void;
+	webcamPreviewStream: MediaStream | null;
 	cursorCaptureMode: CursorCaptureMode;
 	setCursorCaptureMode: (mode: CursorCaptureMode) => void;
 };
@@ -200,6 +208,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const [webcamDeviceName, setWebcamDeviceName] = useState<string | undefined>(undefined);
 	const [systemAudioEnabled, setSystemAudioEnabled] = useState(false);
 	const [webcamEnabled, setWebcamEnabledState] = useState(false);
+	const [webcamSettings, setWebcamSettingsState] = useState<LaunchWebcamSettings>(
+		() => loadUserPreferences().webcamSettings,
+	);
+	const [webcamPreviewStream, setWebcamPreviewStream] = useState<MediaStream | null>(null);
 	const [cursorCaptureMode, setCursorCaptureModeState] =
 		useState<CursorCaptureMode>("editable-overlay");
 	const cursorCaptureModeRef = useRef<CursorCaptureMode>("editable-overlay");
@@ -235,6 +247,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const setCursorCaptureMode = useCallback((mode: CursorCaptureMode) => {
 		cursorCaptureModeRef.current = mode;
 		setCursorCaptureModeState(mode);
+	}, []);
+
+	const setWebcamSettings = useCallback((partial: Partial<LaunchWebcamSettings>) => {
+		setWebcamSettingsState((current) => {
+			const next = normalizeLaunchWebcamSettings({ ...current, ...partial });
+			saveUserPreferences({ webcamSettings: next });
+			return next;
+		});
 	}, []);
 
 	const getRecordingDurationMs = useCallback(() => {
@@ -290,6 +310,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			track.stop();
 		});
 		webcamStream.current = null;
+		setWebcamPreviewStream(null);
 		webcamReady.current = false;
 	}, []);
 
@@ -357,16 +378,15 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
 		const acquire = async () => {
 			try {
+				const videoConstraints: MediaTrackConstraints = {
+					...(webcamDeviceId ? { deviceId: { exact: webcamDeviceId } } : {}),
+					width: { ideal: webcamSettings.width },
+					height: { ideal: webcamSettings.height },
+					frameRate: { ideal: webcamSettings.fps, max: webcamSettings.fps },
+				};
 				const stream = await navigator.mediaDevices.getUserMedia({
 					audio: false,
-					video: webcamDeviceId
-						? {
-								deviceId: { exact: webcamDeviceId },
-								frameRate: { ideal: WEBCAM_TARGET_FRAME_RATE, max: WEBCAM_TARGET_FRAME_RATE },
-							}
-						: {
-								frameRate: { ideal: WEBCAM_TARGET_FRAME_RATE, max: WEBCAM_TARGET_FRAME_RATE },
-							},
+					video: videoConstraints,
 				});
 
 				if (cancelled || thisAcquireId !== webcamAcquireId.current) {
@@ -381,6 +401,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				stream.getVideoTracks().forEach((track) => {
 					track.onended = () => {
 						webcamStream.current = null;
+						setWebcamPreviewStream(null);
 						if (!restarting.current) {
 							setWebcamEnabledState(false);
 							toast.error(t("recording.cameraDisconnected"));
@@ -388,11 +409,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					};
 				});
 				webcamStream.current = stream;
+				setWebcamPreviewStream(stream);
 				webcamReady.current = true;
 			} catch (cameraError) {
 				if (!cancelled) {
 					console.warn("Failed to get webcam access:", cameraError);
 					setWebcamEnabledState(false);
+					setWebcamPreviewStream(null);
 					const isDeviceError =
 						cameraError instanceof DOMException &&
 						[
@@ -418,9 +441,17 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					track.stop();
 				});
 				webcamStream.current = null;
+				setWebcamPreviewStream(null);
 			}
 		};
-	}, [webcamEnabled, webcamDeviceId, t]);
+	}, [
+		webcamEnabled,
+		webcamDeviceId,
+		webcamSettings.fps,
+		webcamSettings.height,
+		webcamSettings.width,
+		t,
+	]);
 
 	const runPostRecordingActions = useCallback(
 		async (session?: RecordingSession | null, path?: string) => {
@@ -525,6 +556,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 								: undefined,
 						createdAt: activeRecordingId,
 						cursorCaptureMode,
+						webcamPresentation:
+							webcamVideoData !== undefined
+								? launchWebcamSettingsToPresentation(webcamSettings)
+								: undefined,
 						durationMs: duration,
 					});
 
@@ -563,7 +598,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				}
 			})();
 		},
-		[cursorCaptureMode, runPostRecordingActions, teardownMedia],
+		[cursorCaptureMode, runPostRecordingActions, teardownMedia, webcamSettings],
 	);
 
 	const finalizeNativeWindowsRecording = useCallback(
@@ -924,10 +959,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					enabled: nativeWebcamEnabled,
 					deviceId: webcamDeviceId,
 					deviceName: webcamDeviceName,
-					width: 0,
-					height: 0,
-					fps: WEBCAM_TARGET_FRAME_RATE,
+					width: webcamSettings.width,
+					height: webcamSettings.height,
+					fps: webcamSettings.fps,
 				},
+				presentation: nativeWebcamEnabled
+					? launchWebcamSettingsToPresentation(webcamSettings)
+					: undefined,
 				cursor: {
 					mode: effectiveCursorCaptureMode,
 				},
@@ -1047,10 +1085,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					enabled: nativeWebcamEnabled,
 					deviceId: webcamDeviceId,
 					deviceName: webcamDeviceName,
-					width: 0,
-					height: 0,
-					fps: WEBCAM_TARGET_FRAME_RATE,
+					width: webcamSettings.width,
+					height: webcamSettings.height,
+					fps: webcamSettings.fps,
 				},
+				presentation: nativeWebcamEnabled
+					? launchWebcamSettingsToPresentation(webcamSettings)
+					: undefined,
 				cursor: {
 					mode: effectiveCursorCaptureMode,
 				},
@@ -1756,6 +1797,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		setSystemAudioEnabled,
 		webcamEnabled,
 		setWebcamEnabled,
+		webcamSettings,
+		setWebcamSettings,
+		webcamPreviewStream,
 		cursorCaptureMode,
 		setCursorCaptureMode,
 	};

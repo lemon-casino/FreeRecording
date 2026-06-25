@@ -3,6 +3,11 @@ import {
 	DEFAULT_EXPORT_SETTINGS,
 } from "@/components/video-editor/editorDefaults";
 import type { ExportFormat, ExportQuality } from "@/lib/exporter";
+import {
+	DEFAULT_LAUNCH_WEBCAM_SETTINGS,
+	type LaunchWebcamSettings,
+	normalizeLaunchWebcamSettings,
+} from "@/lib/webcamSettings";
 import type { AspectRatio } from "@/utils/aspectRatioUtils";
 
 const PREFS_KEY = "openscreen_user_preferences";
@@ -34,6 +39,8 @@ export interface UserPreferences {
 	projectFolder: string | null;
 	/** Recording HUD control layout */
 	trayLayout: TrayLayoutPreference;
+	/** Camera capture and overlay defaults used by the recording HUD */
+	webcamSettings: LaunchWebcamSettings;
 }
 
 export const DEFAULT_PREFS: UserPreferences = {
@@ -44,6 +51,7 @@ export const DEFAULT_PREFS: UserPreferences = {
 	exportFolder: null,
 	projectFolder: null,
 	trayLayout: "auto",
+	webcamSettings: DEFAULT_LAUNCH_WEBCAM_SETTINGS,
 };
 
 /** Parses stored preferences without throwing on malformed JSON. */
@@ -100,6 +108,7 @@ export function loadUserPreferences(): UserPreferences {
 			raw.trayLayout === "auto" || raw.trayLayout === "horizontal" || raw.trayLayout === "vertical"
 				? raw.trayLayout
 				: DEFAULT_PREFS.trayLayout,
+		webcamSettings: normalizeLaunchWebcamSettings(raw.webcamSettings),
 	};
 }
 

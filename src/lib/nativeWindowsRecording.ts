@@ -1,4 +1,5 @@
 import type { RecordingResolutionMode } from "./appSettings";
+import type { WebcamPresentationSettings } from "./webcamSettings";
 
 export type NativeWindowsSourceType = "display" | "window";
 
@@ -41,6 +42,7 @@ export type NativeWindowsRecordingRequest = {
 		height: number;
 		fps: number;
 	};
+	presentation?: WebcamPresentationSettings;
 	cursor: {
 		mode: import("./recordingSession").CursorCaptureMode;
 	};

@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n, useScopedT } from "@/contexts/I18nContext";
 import { useShortcuts } from "@/contexts/ShortcutsContext";
-import { INITIAL_EDITOR_STATE, useEditorHistory } from "@/hooks/useEditorHistory";
+import { type EditorState, INITIAL_EDITOR_STATE, useEditorHistory } from "@/hooks/useEditorHistory";
 import { type Locale } from "@/i18n/config";
 import { getAvailableLocales, getLocaleName } from "@/i18n/loader";
 import {
@@ -173,6 +173,23 @@ function buildExportDiagnosticMessage(diagnostics: ExportDiagnostics) {
 
 function buildSaveDiagnosticMessage(formatLabel: "GIF" | "Video", reason?: string) {
 	return `${formatLabel} export save failed${reason ? `\nReason: ${reason}` : ""}`;
+}
+
+function createInitialEditorStateForSession(session: ProjectMedia): EditorState {
+	const presentation = session.webcamPresentation;
+	if (!presentation) {
+		return INITIAL_EDITOR_STATE;
+	}
+
+	return {
+		...INITIAL_EDITOR_STATE,
+		webcamLayoutPreset: presentation.layoutPreset,
+		webcamMaskShape: presentation.maskShape,
+		webcamMirrored: presentation.mirrored,
+		webcamReactiveZoom: presentation.reactiveZoom,
+		webcamSizePreset: presentation.sizePreset,
+		webcamPosition: presentation.position,
+	};
 }
 
 const CAPTION_WORD_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
@@ -601,6 +618,7 @@ export default function VideoEditor() {
 					const webcamSourcePath = session.webcamVideoPath
 						? fromFileUrl(session.webcamVideoPath)
 						: null;
+					const initialEditorState = createInitialEditorStateForSession(session);
 					setVideoSourcePath(sourcePath);
 					setVideoPath(toFileUrl(sourcePath));
 					setWebcamVideoSourcePath(webcamSourcePath);
@@ -608,6 +626,7 @@ export default function VideoEditor() {
 					setWebcamStartOffsetMs(session.webcamStartOffsetMs ?? 0);
 					setRecordingCursorCaptureMode(session.cursorCaptureMode ?? null);
 					setCurrentProjectPath(null);
+					resetState(initialEditorState);
 					setLastSavedSnapshot(
 						createProjectSnapshot(
 							{
@@ -620,7 +639,7 @@ export default function VideoEditor() {
 									? { cursorCaptureMode: session.cursorCaptureMode }
 									: {}),
 							},
-							INITIAL_EDITOR_STATE,
+							initialEditorState,
 						),
 					);
 					return;
@@ -655,7 +674,7 @@ export default function VideoEditor() {
 		}
 
 		loadInitialData();
-	}, [applyLoadedProject]);
+	}, [applyLoadedProject, resetState]);
 
 	// Avoid overwriting saved prefs with defaults before they've loaded.
 	const [prefsHydrated, setPrefsHydrated] = useState(false);
@@ -861,6 +880,7 @@ export default function VideoEditor() {
 				const webcamSourcePath = session.webcamVideoPath
 					? fromFileUrl(session.webcamVideoPath)
 					: null;
+				const initialEditorState = createInitialEditorStateForSession(session);
 				setVideoSourcePath(sourcePath);
 				setVideoPath(toFileUrl(sourcePath));
 				setWebcamVideoSourcePath(webcamSourcePath);
@@ -868,7 +888,8 @@ export default function VideoEditor() {
 				setWebcamStartOffsetMs(session.webcamStartOffsetMs ?? 0);
 				setRecordingCursorCaptureMode(session.cursorCaptureMode ?? null);
 				setCurrentProjectPath(null);
-				setLastSavedSnapshot(createProjectSnapshot(session, INITIAL_EDITOR_STATE));
+				resetState(initialEditorState);
+				setLastSavedSnapshot(createProjectSnapshot(session, initialEditorState));
 				return;
 			}
 		}
@@ -887,7 +908,7 @@ export default function VideoEditor() {
 		}
 
 		toast.success(t("project.loadedFrom", { path: result.path ?? "" }));
-	}, [applyLoadedProject, t]);
+	}, [applyLoadedProject, resetState, t]);
 
 	const handleLoadProject = useCallback(async () => {
 		if (hasUnsavedChanges) {
@@ -2737,12 +2758,16 @@ export default function VideoEditor() {
 							void (async () => {
 								const sourcePath = session?.screenVideoPath ?? path;
 								const webcamSourcePath = session?.webcamVideoPath ?? null;
+								const initialEditorState = session
+									? createInitialEditorStateForSession(session)
+									: INITIAL_EDITOR_STATE;
 								setVideoPath(toFileUrl(sourcePath));
 								setVideoSourcePath(sourcePath);
 								setWebcamVideoPath(webcamSourcePath ? toFileUrl(webcamSourcePath) : null);
 								setWebcamVideoSourcePath(webcamSourcePath);
 								setWebcamStartOffsetMs(session?.webcamStartOffsetMs ?? 0);
 								setRecordingCursorCaptureMode(session?.cursorCaptureMode ?? null);
+								resetState(initialEditorState);
 							})();
 						}}
 						onProjectOpened={async (project, path) => {

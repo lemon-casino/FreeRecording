@@ -1,7 +1,13 @@
+import {
+	normalizeWebcamPresentationSettings,
+	type WebcamPresentationSettings,
+} from "./webcamSettings";
+
 export interface ProjectMedia {
 	screenVideoPath: string;
 	webcamVideoPath?: string;
 	webcamStartOffsetMs?: number;
+	webcamPresentation?: WebcamPresentationSettings;
 	cursorCaptureMode?: CursorCaptureMode;
 }
 
@@ -21,6 +27,7 @@ export interface StoreRecordedSessionInput {
 	webcam?: RecordedVideoAssetInput;
 	createdAt?: number;
 	cursorCaptureMode?: CursorCaptureMode;
+	webcamPresentation?: WebcamPresentationSettings;
 	/**
 	 * Recording wall-clock duration (ms). The main process patches the WebM Duration
 	 * header on streamed recordings (the renderer no longer holds the bytes). Browser
@@ -65,12 +72,14 @@ export function normalizeProjectMedia(candidate: unknown): ProjectMedia | null {
 
 	const webcamVideoPath = normalizePath(raw.webcamVideoPath);
 	const webcamStartOffsetMs = normalizeNonNegativeNumber(raw.webcamStartOffsetMs);
+	const webcamPresentation = normalizeWebcamPresentationSettings(raw.webcamPresentation);
 	const cursorCaptureMode = normalizeCursorCaptureMode(raw.cursorCaptureMode);
 
 	return {
 		screenVideoPath,
 		...(webcamVideoPath ? { webcamVideoPath } : {}),
 		...(webcamVideoPath && webcamStartOffsetMs !== undefined ? { webcamStartOffsetMs } : {}),
+		...(webcamVideoPath && webcamPresentation ? { webcamPresentation } : {}),
 		...(cursorCaptureMode ? { cursorCaptureMode } : {}),
 	};
 }
