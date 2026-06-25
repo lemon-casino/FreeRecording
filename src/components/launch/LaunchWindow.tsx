@@ -55,6 +55,7 @@ const HUD_DEVICE_POPUP_GAP = 28;
 // Horizontal layout: mirrors the `bottom-[68px]` class on the popup element.
 const HUD_DEVICE_POPUP_HORIZONTAL_BOTTOM = 68;
 const AUDIO_MENU_WIDTH = 224;
+const AUDIO_DEVICE_MENU_WIDTH = 320;
 const AUDIO_MENU_MAX_HEIGHT = 240;
 
 const ICON_CONFIG = {
@@ -182,10 +183,12 @@ export function LaunchWindow() {
 	const [audioMenuStyle, setAudioMenuStyle] = useState<{
 		left: number;
 		top: number;
+		width: number;
 		maxHeight: number;
 	}>({
 		left: 12,
 		top: 12,
+		width: AUDIO_MENU_WIDTH,
 		maxHeight: AUDIO_MENU_MAX_HEIGHT,
 	});
 
@@ -401,11 +404,16 @@ export function LaunchWindow() {
 			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
 			const placeAbove = availableAbove >= 180 || availableAbove >= availableBelow;
 			const availableHeight = Math.max(120, placeAbove ? availableAbove : availableBelow);
-			const panelHeight = Math.min(AUDIO_MENU_MAX_HEIGHT, availableHeight);
-			const centeredLeft = rect.left + rect.width / 2 - AUDIO_MENU_WIDTH / 2;
+			const panelWidth =
+				isAudioDeviceListOpen && microphoneEnabled ? AUDIO_DEVICE_MENU_WIDTH : AUDIO_MENU_WIDTH;
+			const panelHeight =
+				isAudioDeviceListOpen && microphoneEnabled
+					? availableHeight
+					: Math.min(AUDIO_MENU_MAX_HEIGHT, availableHeight);
+			const centeredLeft = rect.left + rect.width / 2 - panelWidth / 2;
 			const left = Math.min(
 				Math.max(viewportPadding, centeredLeft),
-				Math.max(viewportPadding, window.innerWidth - viewportPadding - AUDIO_MENU_WIDTH),
+				Math.max(viewportPadding, window.innerWidth - viewportPadding - panelWidth),
 			);
 			const top = placeAbove
 				? Math.max(viewportPadding, rect.top - gap - panelHeight)
@@ -414,6 +422,7 @@ export function LaunchWindow() {
 			setAudioMenuStyle({
 				left,
 				top,
+				width: panelWidth,
 				maxHeight: panelHeight,
 			});
 		};
@@ -426,7 +435,7 @@ export function LaunchWindow() {
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
 		};
-	}, [isAudioMenuOpen]);
+	}, [isAudioMenuOpen, isAudioDeviceListOpen, microphoneEnabled]);
 
 	useEffect(() => {
 		if (!isAudioMenuOpen || !microphoneEnabled) {
@@ -958,7 +967,7 @@ export function LaunchWindow() {
 										right: "auto",
 										top: `${audioMenuStyle.top}px`,
 										maxHeight: `${audioMenuStyle.maxHeight}px`,
-										width: `${AUDIO_MENU_WIDTH}px`,
+										width: `${audioMenuStyle.width}px`,
 									} as React.CSSProperties
 								}
 								onPointerDown={(event) => event.stopPropagation()}
@@ -1021,7 +1030,12 @@ export function LaunchWindow() {
 											/>
 										</button>
 										{isAudioDeviceListOpen ? (
-											<div className="mt-1 max-h-28 overflow-y-auto pr-1">
+											<div
+												className="mt-1 overflow-y-auto pr-1"
+												style={{
+													maxHeight: `${Math.max(120, audioMenuStyle.maxHeight - 118)}px`,
+												}}
+											>
 												{micDevices.length > 0 ? (
 													micDevices.map((device) => {
 														const selected =
@@ -1037,8 +1051,11 @@ export function LaunchWindow() {
 																	setIsAudioDeviceListOpen(false);
 																}}
 																className={`${styles.languageMenuItem} ${selected ? styles.languageMenuItemActive : ""}`}
+																title={device.label}
 															>
-																<span className="truncate">{device.label}</span>
+																<span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-snug">
+																	{device.label}
+																</span>
 																{selected ? (
 																	<Check size={11} className="shrink-0 text-white/85" />
 																) : null}
