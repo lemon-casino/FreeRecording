@@ -42,6 +42,14 @@ static float soft_limit(float value) {
     return sign * clamp_float(magnitude, 0.0f, 0.99f);
 }
 
+static int16_t float_to_int16(float value) {
+    const float scaled = clamp_float(value, -1.0f, 1.0f) * 32767.0f;
+    const int rounded = (int)(scaled >= 0.0f ? scaled + 0.5f : scaled - 0.5f);
+    if (rounded < -32768) return -32768;
+    if (rounded > 32767) return 32767;
+    return (int16_t)rounded;
+}
+
 static int ensure_queue_capacity(LikelyVoiceEnhancer* enhancer, int additional) {
     const int live_count = enhancer->output_count - enhancer->output_offset;
     const int needed = live_count + additional;
@@ -279,8 +287,7 @@ int likely_voice_enhancer_process_interleaved_int16(
     const int ok = likely_voice_enhancer_process_interleaved_float(enhancer, scratch, frame_count, channels);
     if (ok) {
         for (int index = 0; index < frame_count * channels; index += 1) {
-            const float value = clamp_float(scratch[index], -1.0f, 1.0f);
-            samples[index] = (int16_t)lrintf(value * 32767.0f);
+            samples[index] = float_to_int16(scratch[index]);
         }
     }
 

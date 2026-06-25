@@ -101,13 +101,19 @@ int rnn_autocorr(
    int fastN=n-lag;
    int shift;
    const opus_val16 *xptr;
-   opus_val16 xx[n];
+   opus_val16 *xx = NULL;
    celt_assert(n>0);
    celt_assert(overlap>=0);
    if (overlap == 0)
    {
       xptr = x;
    } else {
+      xx = (opus_val16 *)rnnoise_alloc((size_t)n * sizeof(*xx));
+      if (!xx)
+      {
+         RNN_CLEAR(ac, lag + 1);
+         return 0;
+      }
       for (i=0;i<n;i++)
          xx[i] = x[i];
       for (i=0;i<overlap;i++)
@@ -133,6 +139,15 @@ int rnn_autocorr(
       shift = (shift)/2;
       if (shift>0)
       {
+         if (!xx)
+         {
+            xx = (opus_val16 *)rnnoise_alloc((size_t)n * sizeof(*xx));
+            if (!xx)
+            {
+               RNN_CLEAR(ac, lag + 1);
+               return 0;
+            }
+         }
          for(i=0;i<n;i++)
             xx[i] = PSHR32(xptr[i], shift);
          xptr = xx;
@@ -168,5 +183,7 @@ int rnn_autocorr(
    }
 #endif
 
+   if (xx)
+      rnnoise_free(xx);
    return shift;
 }

@@ -283,6 +283,12 @@ void rnn_pitch_search(const opus_val16 *x_lp, opus_val16 *y,
    int i, j;
    int lag;
    int best_pitch[2]={0,0};
+   int x_lp4_count;
+   int y_lp4_count;
+   int xcorr_count;
+   opus_val16 *x_lp4;
+   opus_val16 *y_lp4;
+   opus_val32 *xcorr;
 #ifdef FIXED_POINT
    opus_val32 maxcorr;
    opus_val32 xmax, ymax;
@@ -293,10 +299,26 @@ void rnn_pitch_search(const opus_val16 *x_lp, opus_val16 *y,
    celt_assert(len>0);
    celt_assert(max_pitch>0);
    lag = len+max_pitch;
+   x_lp4_count = len>>2;
+   y_lp4_count = lag>>2;
+   xcorr_count = max_pitch>>1;
+   if (x_lp4_count <= 0 || y_lp4_count <= 0 || xcorr_count <= 0)
+   {
+      *pitch = 0;
+      return;
+   }
 
-   opus_val16 x_lp4[len>>2];
-   opus_val16 y_lp4[lag>>2];
-   opus_val32 xcorr[max_pitch>>1];
+   x_lp4 = (opus_val16 *)rnnoise_alloc((size_t)x_lp4_count * sizeof(*x_lp4));
+   y_lp4 = (opus_val16 *)rnnoise_alloc((size_t)y_lp4_count * sizeof(*y_lp4));
+   xcorr = (opus_val32 *)rnnoise_alloc((size_t)xcorr_count * sizeof(*xcorr));
+   if (!x_lp4 || !y_lp4 || !xcorr)
+   {
+      rnnoise_free(x_lp4);
+      rnnoise_free(y_lp4);
+      rnnoise_free(xcorr);
+      *pitch = 0;
+      return;
+   }
 
    /* Downsample by 2 again */
    for (j=0;j<len>>2;j++)
@@ -379,6 +401,9 @@ void rnn_pitch_search(const opus_val16 *x_lp, opus_val16 *y,
       offset = 0;
    }
    *pitch = 2*best_pitch[0]-offset;
+   rnnoise_free(x_lp4);
+   rnnoise_free(y_lp4);
+   rnnoise_free(xcorr);
 }
 
 #ifdef FIXED_POINT
@@ -426,6 +451,7 @@ opus_val16 rnn_remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
    opus_val32 xy,xx,yy,xy2;
    opus_val32 xcorr[3];
    opus_val32 best_xy, best_yy;
+   opus_val32 *yy_lookup;
    int offset;
    int minperiod0;
 
@@ -440,7 +466,9 @@ opus_val16 rnn_remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
       *T0_=maxperiod-1;
 
    T = T0 = *T0_;
-   opus_val32 yy_lookup[maxperiod+1];
+   yy_lookup = (opus_val32 *)rnnoise_alloc((size_t)(maxperiod + 1) * sizeof(*yy_lookup));
+   if (!yy_lookup)
+      return 0;
    dual_inner_prod(x, x, x-T0, N, &xx, &xy);
    yy_lookup[0] = xx;
    yy=xx;
@@ -519,5 +547,6 @@ opus_val16 rnn_remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
 
    if (*T0_<minperiod0)
       *T0_=minperiod0;
+   rnnoise_free(yy_lookup);
    return pg;
 }

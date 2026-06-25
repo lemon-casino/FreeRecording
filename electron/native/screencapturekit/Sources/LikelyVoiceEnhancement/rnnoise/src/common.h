@@ -6,8 +6,13 @@
 #include "stdlib.h"
 #include "string.h"
 
+#if defined(_MSC_VER) && !defined(__cplusplus)
+#define RNN_INLINE __inline
+#define OPUS_INLINE __inline
+#else
 #define RNN_INLINE inline
 #define OPUS_INLINE inline
+#endif
 
 
 /** RNNoise wrapper for malloc(). To do your own dynamic allocation, all you need t
