@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { AppSettingsDialog } from "./components/launch/AppSettingsDialog";
 import { CountdownOverlay } from "./components/launch/CountdownOverlay.tsx";
 import { LaunchWindow } from "./components/launch/LaunchWindow";
+import { RecordingFrame } from "./components/launch/RecordingFrame";
 import { SourceSelector } from "./components/launch/SourceSelector";
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -28,7 +29,12 @@ export default function App() {
 			setWindowType(type);
 		}
 
-		if (type === "hud-overlay" || type === "source-selector" || type === "countdown-overlay") {
+		if (
+			type === "hud-overlay" ||
+			type === "source-selector" ||
+			type === "countdown-overlay" ||
+			type === "recording-frame"
+		) {
 			document.documentElement.classList.add("transparent-window");
 			document.body.classList.add("transparent-window");
 			document.getElementById("root")?.classList.add("transparent-window");
@@ -74,6 +80,8 @@ export default function App() {
 				return <SourceSelector />;
 			case "countdown-overlay":
 				return <CountdownOverlay />;
+			case "recording-frame":
+				return <RecordingFrame />;
 			case "settings":
 				return (
 					<div className="h-screen w-screen overflow-hidden bg-[#08090c]">

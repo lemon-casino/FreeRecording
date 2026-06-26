@@ -1041,6 +1041,145 @@ function toProcessedDesktopSource(source: DesktopCapturerSource): SelectedSource
 	};
 }
 
+type OwnCapturableWindowIdentifiers = {
+	mediaSourceIds: Set<string>;
+	nativeHandleIds: Set<string>;
+	titles: Set<string>;
+	appLabels: Set<string>;
+};
+
+function normalizeSourceTitle(title?: string | null) {
+	return typeof title === "string" ? title.trim() : "";
+}
+
+function addNativeHandleCandidate(values: Set<string>, readValue: () => number | bigint) {
+	try {
+		const value = BigInt(readValue());
+		if (value > 0n) {
+			values.add(value.toString());
+		}
+	} catch {
+		// Some platforms expose shorter native handles. Ignore unsupported reads.
+	}
+}
+
+function getNativeWindowHandleCandidates(window: BrowserWindow) {
+	const values = new Set<string>();
+	try {
+		const handle = window.getNativeWindowHandle();
+		if (handle.length >= 8) {
+			addNativeHandleCandidate(values, () => handle.readBigUInt64LE(0));
+			addNativeHandleCandidate(values, () => handle.readBigUInt64BE(0));
+		}
+		if (handle.length >= 4) {
+			addNativeHandleCandidate(values, () => handle.readUInt32LE(0));
+			addNativeHandleCandidate(values, () => handle.readUInt32BE(0));
+		}
+	} catch {
+		// Best-effort fallback only; BrowserWindow media source ids are preferred.
+	}
+	return values;
+}
+
+function getBrowserWindowMediaSourceId(window: BrowserWindow) {
+	try {
+		const getMediaSourceId = (window as BrowserWindow & { getMediaSourceId?: () => string })
+			.getMediaSourceId;
+		return typeof getMediaSourceId === "function" ? getMediaSourceId.call(window) : null;
+	} catch {
+		return null;
+	}
+}
+
+function getOwnCapturableWindowIdentifiers(): OwnCapturableWindowIdentifiers {
+	const mediaSourceIds = new Set<string>();
+	const nativeHandleIds = new Set<string>();
+	const titles = new Set<string>();
+	const appLabels = new Set<string>();
+
+	for (const label of [app.getName(), app.name]) {
+		const normalized = normalizeSourceTitle(label);
+		if (normalized) {
+			appLabels.add(normalized);
+		}
+	}
+
+	for (const window of BrowserWindow.getAllWindows()) {
+		if (window.isDestroyed()) {
+			continue;
+		}
+
+		const mediaSourceId = getBrowserWindowMediaSourceId(window);
+		if (mediaSourceId) {
+			mediaSourceIds.add(mediaSourceId);
+		}
+
+		const title = normalizeSourceTitle(window.getTitle());
+		if (title) {
+			titles.add(title);
+		}
+
+		for (const handleId of getNativeWindowHandleCandidates(window)) {
+			nativeHandleIds.add(handleId);
+		}
+	}
+
+	return { mediaSourceIds, nativeHandleIds, titles, appLabels };
+}
+
+function parseDesktopCapturerWindowHandleId(sourceId?: string | null) {
+	if (!sourceId?.startsWith("window:")) {
+		return null;
+	}
+
+	const handle = sourceId.split(":")[1];
+	if (!handle || !/^\d+$/.test(handle)) {
+		return null;
+	}
+
+	return BigInt(handle).toString();
+}
+
+function isOwnCapturableWindowSource(
+	source: Pick<DesktopCapturerSource, "id" | "name"> | Pick<SelectedSource, "id" | "name">,
+	identifiers = getOwnCapturableWindowIdentifiers(),
+) {
+	if (!source.id?.startsWith("window:")) {
+		return false;
+	}
+
+	if (identifiers.mediaSourceIds.has(source.id)) {
+		return true;
+	}
+
+	const handleId = parseDesktopCapturerWindowHandleId(source.id);
+	if (handleId && identifiers.nativeHandleIds.has(handleId)) {
+		return true;
+	}
+
+	const title = normalizeSourceTitle(source.name);
+	if (!title) {
+		return false;
+	}
+
+	if (identifiers.titles.has(title) || identifiers.appLabels.has(title)) {
+		return true;
+	}
+
+	for (const segment of title.split(" — ").map(normalizeSourceTitle)) {
+		if (segment && (identifiers.titles.has(segment) || identifiers.appLabels.has(segment))) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function filterCapturableSources(sources: DesktopCapturerSource[]) {
+	const identifiers = getOwnCapturableWindowIdentifiers();
+	return sources.filter((source) => !isOwnCapturableWindowSource(source, identifiers));
+}
+
 export async function ensureDefaultSelectedSource(): Promise<SelectedSource | null> {
 	if (selectedSource && selectedDesktopSource) {
 		return selectedSource;
@@ -1605,6 +1744,35 @@ function getSelectedSourceBounds() {
 		? (screen.getAllDisplays().find((display) => display.id === sourceDisplayId) ?? null)
 		: null;
 	return (sourceDisplay ?? screen.getDisplayNearestPoint(cursor)).bounds;
+}
+
+function getSelectedCustomRecordingFrameBounds() {
+	if (
+		!selectedSource?.bounds ||
+		typeof selectedSource.id !== "string" ||
+		!selectedSource.id.startsWith("custom:")
+	) {
+		return null;
+	}
+
+	const { x, y, width, height } = selectedSource.bounds;
+	if (
+		!Number.isFinite(x) ||
+		!Number.isFinite(y) ||
+		!Number.isFinite(width) ||
+		!Number.isFinite(height) ||
+		width <= 0 ||
+		height <= 0
+	) {
+		return null;
+	}
+
+	return {
+		x: Math.round(x),
+		y: Math.round(y),
+		width: Math.round(width),
+		height: Math.round(height),
+	};
 }
 
 function getSelectedSourceId() {
@@ -2711,7 +2879,11 @@ export function registerIpcHandlers(
 	getMainWindow: () => BrowserWindow | null,
 	getSourceSelectorWindow: () => BrowserWindow | null,
 	getCountdownOverlayWindow?: () => BrowserWindow | null,
-	onRecordingStateChange?: (recording: boolean, sourceName: string) => void,
+	onRecordingStateChange?: (
+		recording: boolean,
+		sourceName: string,
+		frameBounds?: Rectangle | null,
+	) => void,
 	_switchToHud?: () => void,
 ) {
 	void refreshActiveRecordingsDir().catch((error) => {
@@ -2774,12 +2946,18 @@ export function registerIpcHandlers(
 	}
 
 	ipcMain.handle("get-sources", async (_, opts) => {
-		const sources = await desktopCapturer.getSources(opts);
+		const sources = filterCapturableSources(await desktopCapturer.getSources(opts));
 		lastEnumeratedSources = new Map(sources.map((source) => [source.id, source]));
 		return sources.map(toProcessedDesktopSource);
 	});
 
 	ipcMain.handle("select-source", async (_, source: SelectedSource) => {
+		if (isOwnCapturableWindowSource(source)) {
+			selectedSource = null;
+			selectedDesktopSource = null;
+			return null;
+		}
+
 		selectedSource = source;
 		// Reuse the exact source object returned during enumeration to avoid
 		// Windows window-source id mismatches across separate getSources() calls.
@@ -2795,11 +2973,13 @@ export function registerIpcHandlers(
 
 		if (!selectedDesktopSource && desktopSourceId) {
 			try {
-				const sources = await desktopCapturer.getSources({
-					types: ["screen", "window"],
-					thumbnailSize: { width: 0, height: 0 },
-					fetchWindowIcons: true,
-				});
+				const sources = filterCapturableSources(
+					await desktopCapturer.getSources({
+						types: ["screen", "window"],
+						thumbnailSize: { width: 0, height: 0 },
+						fetchWindowIcons: true,
+					}),
+				);
 				lastEnumeratedSources = new Map(sources.map((candidate) => [candidate.id, candidate]));
 				selectedDesktopSource = lastEnumeratedSources.get(desktopSourceId) ?? null;
 			} catch {
@@ -3211,7 +3391,7 @@ export function registerIpcHandlers(
 
 				const source = selectedSource || { name: "Screen" };
 				if (onRecordingStateChange) {
-					onRecordingStateChange(true, source.name);
+					onRecordingStateChange(true, source.name, getSelectedCustomRecordingFrameBounds());
 				}
 
 				return {
@@ -3426,7 +3606,7 @@ export function registerIpcHandlers(
 
 			const source = selectedSource || { name: "Screen" };
 			if (onRecordingStateChange) {
-				onRecordingStateChange(true, source.name);
+				onRecordingStateChange(true, source.name, getSelectedCustomRecordingFrameBounds());
 			}
 
 			return {
@@ -3770,7 +3950,7 @@ export function registerIpcHandlers(
 			nativeWindowsIsPaused = false;
 			const source = selectedSource || { name: "Screen" };
 			if (onRecordingStateChange) {
-				onRecordingStateChange(false, source.name);
+				onRecordingStateChange(false, source.name, null);
 			}
 		}
 	});
@@ -3931,7 +4111,7 @@ export function registerIpcHandlers(
 			nativeMacIsPaused = false;
 			const source = selectedSource || { name: "Screen" };
 			if (onRecordingStateChange) {
-				onRecordingStateChange(false, source.name);
+				onRecordingStateChange(false, source.name, null);
 			}
 		}
 	});
@@ -4313,7 +4493,11 @@ export function registerIpcHandlers(
 
 			const source = selectedSource || { name: "Screen" };
 			if (onRecordingStateChange) {
-				onRecordingStateChange(recording, source.name);
+				onRecordingStateChange(
+					recording,
+					source.name,
+					recording ? getSelectedCustomRecordingFrameBounds() : null,
+				);
 			}
 		},
 	);

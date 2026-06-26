@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen } from "electron";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -265,6 +265,7 @@ export function createHudOverlayWindow(): BrowserWindow {
 		alwaysOnTop: true,
 		skipTaskbar: true,
 		hasShadow: false,
+		title: app.getName(),
 		show: false, // shown via ready-to-show to avoid black rectangle flash
 		webPreferences: {
 			preload: path.join(__dirname, "preload.mjs"),
@@ -332,7 +333,7 @@ export function createEditorWindow(): BrowserWindow {
 		resizable: true,
 		alwaysOnTop: false,
 		skipTaskbar: false,
-		title: "LikelySnap",
+		title: app.getName(),
 		backgroundColor: "#09090b",
 		show: false, // shown via ready-to-show to avoid white flash on first load
 		webPreferences: {
@@ -394,6 +395,7 @@ export function createSourceSelectorWindow(): BrowserWindow {
 		alwaysOnTop: true,
 		transparent: true,
 		backgroundColor: "#00000000",
+		title: app.getName(),
 		webPreferences: {
 			preload: path.join(__dirname, "preload.mjs"),
 			additionalArguments: [ASSET_BASE_URL_ARG],
@@ -441,6 +443,7 @@ export function createSettingsWindow(parentWindow?: BrowserWindow | null): Brows
 		skipTaskbar: true,
 		transparent: false,
 		backgroundColor: "#08090c",
+		title: app.getName(),
 		show: false,
 		...(parentWindow && !parentWindow.isDestroyed() ? { parent: parentWindow } : {}),
 		webPreferences: {
@@ -500,6 +503,7 @@ export function createCountdownOverlayWindow(): BrowserWindow {
 		transparent: true,
 		backgroundColor: "#00000000",
 		hasShadow: false,
+		title: app.getName(),
 		show: false,
 		webPreferences: {
 			preload: path.join(__dirname, "preload.mjs"),
@@ -521,6 +525,57 @@ export function createCountdownOverlayWindow(): BrowserWindow {
 	} else {
 		win.loadFile(path.join(RENDERER_DIST, "index.html"), {
 			query: { windowType: "countdown-overlay" },
+		});
+	}
+
+	return win;
+}
+
+export function createRecordingFrameWindow(bounds: Electron.Rectangle): BrowserWindow {
+	const frameWidth = Math.max(8, Math.round(bounds.width));
+	const frameHeight = Math.max(8, Math.round(bounds.height));
+	const win = new BrowserWindow({
+		width: frameWidth,
+		height: frameHeight,
+		minWidth: 8,
+		minHeight: 8,
+		x: Math.round(bounds.x),
+		y: Math.round(bounds.y),
+		frame: false,
+		resizable: false,
+		alwaysOnTop: true,
+		skipTaskbar: true,
+		focusable: false,
+		transparent: true,
+		backgroundColor: "#00000000",
+		hasShadow: false,
+		title: app.getName(),
+		show: false,
+		webPreferences: {
+			preload: path.join(__dirname, "preload.mjs"),
+			additionalArguments: [ASSET_BASE_URL_ARG],
+			nodeIntegration: false,
+			contextIsolation: true,
+			backgroundThrottling: false,
+		},
+	});
+
+	win.setIgnoreMouseEvents(true);
+	win.setContentProtection(true);
+
+	if (process.platform === "darwin") {
+		win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+	}
+
+	win.once("ready-to-show", () => {
+		if (!HEADLESS) win.showInactive();
+	});
+
+	if (VITE_DEV_SERVER_URL) {
+		win.loadURL(VITE_DEV_SERVER_URL + "?windowType=recording-frame");
+	} else {
+		win.loadFile(path.join(RENDERER_DIST, "index.html"), {
+			query: { windowType: "recording-frame" },
 		});
 	}
 

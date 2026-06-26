@@ -8,7 +8,8 @@ const windowType = new URLSearchParams(window.location.search).get("windowType")
 if (
 	windowType === "hud-overlay" ||
 	windowType === "source-selector" ||
-	windowType === "countdown-overlay"
+	windowType === "countdown-overlay" ||
+	windowType === "recording-frame"
 ) {
 	document.documentElement.classList.add("transparent-window");
 	document.body.classList.add("transparent-window");

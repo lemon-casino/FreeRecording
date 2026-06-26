@@ -31,6 +31,7 @@ import {
 	createCountdownOverlayWindow,
 	createEditorWindow,
 	createHudOverlayWindow,
+	createRecordingFrameWindow,
 	createSettingsWindow,
 	createSourceSelectorWindow,
 } from "./windows";
@@ -131,6 +132,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let mainWindow: BrowserWindow | null = null;
 let sourceSelectorWindow: BrowserWindow | null = null;
 let countdownOverlayWindow: BrowserWindow | null = null;
+let recordingFrameWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let selectedSourceName = "";
@@ -512,6 +514,37 @@ function createCountdownOverlayWindowWrapper() {
 	return countdownOverlayWindow;
 }
 
+function closeRecordingFrameWindow() {
+	if (recordingFrameWindow && !recordingFrameWindow.isDestroyed()) {
+		recordingFrameWindow.close();
+	}
+	recordingFrameWindow = null;
+}
+
+function showRecordingFrameWindow(bounds?: Electron.Rectangle | null) {
+	closeRecordingFrameWindow();
+
+	if (
+		!bounds ||
+		!Number.isFinite(bounds.x) ||
+		!Number.isFinite(bounds.y) ||
+		!Number.isFinite(bounds.width) ||
+		!Number.isFinite(bounds.height) ||
+		bounds.width <= 0 ||
+		bounds.height <= 0
+	) {
+		return;
+	}
+
+	const nextWindow = createRecordingFrameWindow(bounds);
+	recordingFrameWindow = nextWindow;
+	nextWindow.on("closed", () => {
+		if (recordingFrameWindow === nextWindow) {
+			recordingFrameWindow = null;
+		}
+	});
+}
+
 function createSettingsWindowWrapper() {
 	if (!app.isReady()) {
 		runWhenReady(() => {
@@ -561,6 +594,7 @@ app.on("activate", () => {
 });
 
 app.on("will-quit", () => {
+	closeRecordingFrameWindow();
 	unregisterAllGlobalShortcuts();
 });
 
@@ -672,11 +706,14 @@ app.whenReady().then(async () => {
 		() => mainWindow,
 		() => sourceSelectorWindow,
 		() => countdownOverlayWindow,
-		(recording: boolean, sourceName: string) => {
+		(recording: boolean, sourceName: string, frameBounds?: Electron.Rectangle | null) => {
 			selectedSourceName = sourceName;
 			if (!tray) createTray();
 			updateTrayMenu(recording);
-			if (!recording) {
+			if (recording) {
+				showRecordingFrameWindow(frameBounds);
+			} else {
+				closeRecordingFrameWindow();
 				showMainWindow();
 			}
 		},
