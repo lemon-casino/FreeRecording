@@ -337,7 +337,7 @@ MFEncoder::FrameCopyResult MFEncoder::copyFrameToBuffer(
     normalizeBgraForOpaqueEncoding(destination, requiredBytes);
     if (!hasVisibleBgraContent(destination, requiredBytes) && darkFrameWarnings_ < 3) {
         darkFrameWarnings_ += 1;
-        std::cerr << "WARNING: Encoded WGC frame appears nearly black after readback" << std::endl;
+        std::cerr << "WARNING: Encoded native capture frame appears nearly black after readback" << std::endl;
     }
 
     context_->Unmap(stagingTexture_.Get(), 0);

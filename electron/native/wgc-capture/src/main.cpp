@@ -1,10 +1,12 @@
 #include "audio_sample_utils.h"
+#include "desktop_duplication_session.h"
 #include "mf_encoder.h"
 #include "monitor_utils.h"
 #include "wasapi_loopback_capture.h"
 #include "webcam_capture.h"
 #include "wgc_session.h"
 
+#include <dwmapi.h>
 #include <winrt/Windows.Foundation.h>
 
 #include <algorithm>
@@ -13,12 +15,15 @@
 #include <condition_variable>
 #include <cctype>
 #include <cstdint>
+#include <cmath>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -85,6 +90,19 @@ struct CaptureControl {
     }
 };
 
+struct SourceCrop {
+    bool enabled = false;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+struct WindowFrameBounds {
+    RECT rect{};
+    bool physicalPixels = false;
+};
+
 std::wstring utf8ToWide(const std::string& value) {
     if (value.empty()) {
         return {};
@@ -133,6 +151,131 @@ std::string jsonEscape(const std::string& value) {
         }
     }
     return result;
+}
+
+int rectWidth(const RECT& rect) {
+    return static_cast<int>(rect.right - rect.left);
+}
+
+int rectHeight(const RECT& rect) {
+    return static_cast<int>(rect.bottom - rect.top);
+}
+
+bool hasUsableRect(const RECT& rect) {
+    return rectWidth(rect) > 1 && rectHeight(rect) > 1;
+}
+
+int evenSize(int value) {
+    return (std::max(2, value) / 2) * 2;
+}
+
+SourceCrop clampPhysicalCropToOutput(const RECT& targetRect, const RECT& outputRect) {
+    const int outputWidth = rectWidth(outputRect);
+    const int outputHeight = rectHeight(outputRect);
+    const int left = std::clamp(
+        static_cast<int>(targetRect.left - outputRect.left),
+        0,
+        std::max(0, outputWidth - 2));
+    const int top = std::clamp(
+        static_cast<int>(targetRect.top - outputRect.top),
+        0,
+        std::max(0, outputHeight - 2));
+    const int right = std::clamp(
+        static_cast<int>(targetRect.right - outputRect.left),
+        left + 2,
+        outputWidth);
+    const int bottom = std::clamp(
+        static_cast<int>(targetRect.bottom - outputRect.top),
+        top + 2,
+        outputHeight);
+
+    SourceCrop crop{};
+    crop.enabled = true;
+    crop.x = left;
+    crop.y = top;
+    crop.width = evenSize(right - left);
+    crop.height = evenSize(bottom - top);
+    if (crop.x + crop.width > outputWidth) {
+        crop.width = evenSize(outputWidth - crop.x);
+    }
+    if (crop.y + crop.height > outputHeight) {
+        crop.height = evenSize(outputHeight - crop.y);
+    }
+    return crop;
+}
+
+RECT logicalRectToPhysicalRect(const RECT& logicalRect, const RECT& logicalMonitor, const RECT& physicalMonitor) {
+    const double scaleX = static_cast<double>(rectWidth(physicalMonitor)) /
+                          static_cast<double>(std::max(1, rectWidth(logicalMonitor)));
+    const double scaleY = static_cast<double>(rectHeight(physicalMonitor)) /
+                          static_cast<double>(std::max(1, rectHeight(logicalMonitor)));
+    RECT result{};
+    result.left = physicalMonitor.left +
+                  static_cast<LONG>(std::llround((logicalRect.left - logicalMonitor.left) * scaleX));
+    result.top = physicalMonitor.top +
+                 static_cast<LONG>(std::llround((logicalRect.top - logicalMonitor.top) * scaleY));
+    result.right = physicalMonitor.left +
+                   static_cast<LONG>(std::llround((logicalRect.right - logicalMonitor.left) * scaleX));
+    result.bottom = physicalMonitor.top +
+                    static_cast<LONG>(std::llround((logicalRect.bottom - logicalMonitor.top) * scaleY));
+    return result;
+}
+
+SourceCrop makeLogicalMonitorCrop(const MonitorBounds& bounds, HMONITOR monitor, const RECT& physicalOutputRect) {
+    MONITORINFO monitorInfo{};
+    monitorInfo.cbSize = sizeof(MONITORINFO);
+    if (!GetMonitorInfoW(monitor, &monitorInfo)) {
+        return {};
+    }
+
+    RECT logicalBounds{};
+    logicalBounds.left = bounds.x;
+    logicalBounds.top = bounds.y;
+    logicalBounds.right = bounds.x + bounds.width;
+    logicalBounds.bottom = bounds.y + bounds.height;
+    return clampPhysicalCropToOutput(
+        logicalRectToPhysicalRect(logicalBounds, monitorInfo.rcMonitor, physicalOutputRect),
+        physicalOutputRect);
+}
+
+bool getVisibleWindowFrameBounds(HWND window, WindowFrameBounds& bounds) {
+    RECT frameBounds{};
+    HRESULT hr = DwmGetWindowAttribute(
+        window,
+        DWMWA_EXTENDED_FRAME_BOUNDS,
+        &frameBounds,
+        sizeof(frameBounds));
+    if (SUCCEEDED(hr) && hasUsableRect(frameBounds)) {
+        bounds.rect = frameBounds;
+        bounds.physicalPixels = true;
+        return true;
+    }
+
+    RECT windowRect{};
+    if (GetWindowRect(window, &windowRect) && hasUsableRect(windowRect)) {
+        bounds.rect = windowRect;
+        bounds.physicalPixels = false;
+        return true;
+    }
+
+    return false;
+}
+
+RECT windowFrameBoundsToPhysicalRect(
+    const WindowFrameBounds& bounds,
+    HMONITOR monitor,
+    const RECT& physicalOutputRect) {
+    if (bounds.physicalPixels) {
+        return bounds.rect;
+    }
+
+    MONITORINFO monitorInfo{};
+    monitorInfo.cbSize = sizeof(MONITORINFO);
+    if (!GetMonitorInfoW(monitor, &monitorInfo)) {
+        return bounds.rect;
+    }
+
+    return logicalRectToPhysicalRect(bounds.rect, monitorInfo.rcMonitor, physicalOutputRect);
 }
 
 bool hasVisibleBgraContent(const std::vector<BYTE>& frame) {
@@ -405,8 +548,11 @@ int main(int argc, char* argv[]) {
 
     std::cout << "{\"event\":\"ready\",\"schemaVersion\":2}" << std::endl;
 
-    WgcSession session;
-    HMONITOR captureMonitor = nullptr;
+    WgcSession wgcSession;
+    DesktopDuplicationSession desktopSession;
+    bool useDesktopDuplication = false;
+    std::string captureEngine = "wgc";
+    SourceCrop sourceCrop{};
     if (config.sourceType == "display") {
         HMONITOR monitor = findMonitorForCapture(
             config.displayId,
@@ -415,60 +561,89 @@ int main(int argc, char* argv[]) {
             std::cerr << "ERROR: Could not resolve monitor" << std::endl;
             return 1;
         }
-        if (!session.initialize(monitor, config.fps, config.captureCursor)) {
-            std::cerr << "ERROR: Failed to initialize WGC display session" << std::endl;
-            return 1;
+        if (config.customBounds) {
+            if (!desktopSession.initialize(monitor, config.fps)) {
+                std::cerr << "ERROR: Failed to initialize desktop duplication session" << std::endl;
+                return 1;
+            }
+            useDesktopDuplication = true;
+            captureEngine = "desktop-duplication";
+            if (config.bounds.width > 0 && config.bounds.height > 0) {
+                sourceCrop = makeLogicalMonitorCrop(config.bounds, monitor, desktopSession.outputRect());
+            }
+            if (!sourceCrop.enabled) {
+                std::cerr << "ERROR: Failed to calculate custom capture crop" << std::endl;
+                return 1;
+            }
+        } else {
+            if (!wgcSession.initialize(monitor, config.fps, config.captureCursor)) {
+                std::cerr << "ERROR: Failed to initialize WGC display session" << std::endl;
+                return 1;
+            }
         }
-        captureMonitor = monitor;
     } else if (config.sourceType == "window") {
         HWND window = parseWindowHandle(config.windowHandle);
         if (!window || !IsWindow(window)) {
             std::cerr << "ERROR: Native window capture requires a valid HWND" << std::endl;
             return 1;
         }
-        RECT windowRect{};
-        GetWindowRect(window, &windowRect);
+        if (IsIconic(window)) {
+            std::cerr << "ERROR: Minimized windows cannot be captured reliably" << std::endl;
+            return 1;
+        }
+        WindowFrameBounds windowBounds{};
+        if (!getVisibleWindowFrameBounds(window, windowBounds)) {
+            std::cerr << "ERROR: Could not resolve visible window bounds" << std::endl;
+            return 1;
+        }
+        HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+        if (!monitor) {
+            std::cerr << "ERROR: Could not resolve target window monitor" << std::endl;
+            return 1;
+        }
+        if (!desktopSession.initialize(monitor, config.fps)) {
+            std::cerr << "ERROR: Failed to initialize desktop duplication window session" << std::endl;
+            return 1;
+        }
+        useDesktopDuplication = true;
+        captureEngine = "desktop-duplication";
+        const RECT physicalWindowRect =
+            windowFrameBoundsToPhysicalRect(windowBounds, monitor, desktopSession.outputRect());
+        sourceCrop = clampPhysicalCropToOutput(physicalWindowRect, desktopSession.outputRect());
+        if (!sourceCrop.enabled) {
+            std::cerr << "ERROR: Failed to calculate window capture crop" << std::endl;
+            return 1;
+        }
         std::cerr << "INFO: Native window capture target hwnd=" << reinterpret_cast<uintptr_t>(window)
                   << " visible=" << (IsWindowVisible(window) ? "true" : "false")
                   << " iconic=" << (IsIconic(window) ? "true" : "false")
-                  << " rect=" << (windowRect.right - windowRect.left) << "x"
-                  << (windowRect.bottom - windowRect.top) << std::endl;
-        if (!session.initialize(window, config.fps, config.captureCursor)) {
-            std::cerr << "ERROR: Failed to initialize WGC window session" << std::endl;
-            return 1;
-        }
+                  << " boundsSpace=" << (windowBounds.physicalPixels ? "physical" : "logical")
+                  << " rect=" << rectWidth(windowBounds.rect) << "x"
+                  << rectHeight(windowBounds.rect)
+                  << " crop=" << sourceCrop.x << "," << sourceCrop.y << " "
+                  << sourceCrop.width << "x" << sourceCrop.height << std::endl;
     } else {
         std::cerr << "ERROR: Unsupported native capture source type: " << config.sourceType << std::endl;
         return 1;
     }
 
-    // WGC owns the captured texture size. Encoding must use that exact size
-    // until a dedicated GPU scaling pass is introduced; CopyResource requires
-    // matching resource dimensions.
-    int width = session.captureWidth();
-    int height = session.captureHeight();
-    bool useSourceCrop = false;
-    int sourceCropX = 0;
-    int sourceCropY = 0;
-    if (config.sourceType == "display" && config.customBounds &&
-        config.bounds.width > 0 && config.bounds.height > 0 && captureMonitor) {
-        MONITORINFO monitorInfo{};
-        monitorInfo.cbSize = sizeof(MONITORINFO);
-        if (GetMonitorInfoW(captureMonitor, &monitorInfo)) {
-            sourceCropX = std::max(0, config.bounds.x - static_cast<int>(monitorInfo.rcMonitor.left));
-            sourceCropY = std::max(0, config.bounds.y - static_cast<int>(monitorInfo.rcMonitor.top));
-            const int maxCropWidth = std::max(2, width - sourceCropX);
-            const int maxCropHeight = std::max(2, height - sourceCropY);
-            width = std::min(maxCropWidth, config.bounds.width);
-            height = std::min(maxCropHeight, config.bounds.height);
-            useSourceCrop = true;
-        }
-    }
-    width = (std::max(2, width) / 2) * 2;
-    height = (std::max(2, height) / 2) * 2;
+    ID3D11Device* captureDevice =
+        useDesktopDuplication ? desktopSession.device() : wgcSession.device();
+    ID3D11DeviceContext* captureContext =
+        useDesktopDuplication ? desktopSession.context() : wgcSession.context();
+    const int captureWidth =
+        useDesktopDuplication ? desktopSession.captureWidth() : wgcSession.captureWidth();
+    const int captureHeight =
+        useDesktopDuplication ? desktopSession.captureHeight() : wgcSession.captureHeight();
+
+    int width = sourceCrop.enabled ? sourceCrop.width : captureWidth;
+    int height = sourceCrop.enabled ? sourceCrop.height : captureHeight;
+    width = evenSize(width);
+    height = evenSize(height);
     std::cout << "{\"event\":\"capture-format\",\"schemaVersion\":2,\"sourceType\":\""
               << jsonEscape(config.sourceType) << "\",\"width\":" << width
-              << ",\"height\":" << height << "}" << std::endl;
+              << ",\"height\":" << height
+              << ",\"captureEngine\":\"" << jsonEscape(captureEngine) << "\"}" << std::endl;
 
     const int pixels = width * height;
     const int bitrate = config.bitrate > 0
@@ -552,14 +727,14 @@ int main(int argc, char* argv[]) {
             height,
             config.fps,
             bitrate,
-            session.device(),
-            session.context(),
+            captureDevice,
+            captureContext,
             audioFormat ? &encoderAudioFormat : nullptr)) {
         std::cerr << "ERROR: Failed to initialize Media Foundation encoder" << std::endl;
         return 1;
     }
-    if (useSourceCrop) {
-        encoder.setSourceCrop(sourceCropX, sourceCropY);
+    if (sourceCrop.enabled) {
+        encoder.setSourceCrop(sourceCrop.x, sourceCrop.y);
     }
 
     MFEncoder webcamEncoder;
@@ -572,8 +747,8 @@ int main(int argc, char* argv[]) {
                 webcamCapture.height(),
                 webcamCapture.fps(),
                 webcamBitrate,
-                session.device(),
-                session.context(),
+                captureDevice,
+                captureContext,
                 nullptr)) {
             std::cerr << "ERROR: Failed to initialize native webcam encoder" << std::endl;
             return 1;
@@ -594,7 +769,25 @@ int main(int argc, char* argv[]) {
     bool hasVisibleWebcamFrame = false;
     int64_t firstWebcamTimelineTimestampHns = -1;
 
-    session.setFrameCallback([&](ID3D11Texture2D* texture, int64_t timestampHns) {
+    auto setCaptureFrameCallback = [&](std::function<void(ID3D11Texture2D*, int64_t)> callback) {
+        if (useDesktopDuplication) {
+            desktopSession.setFrameCallback(std::move(callback));
+        } else {
+            wgcSession.setFrameCallback(std::move(callback));
+        }
+    };
+    auto startCaptureSession = [&]() {
+        return useDesktopDuplication ? desktopSession.start() : wgcSession.start();
+    };
+    auto stopCaptureSession = [&]() {
+        if (useDesktopDuplication) {
+            desktopSession.stop();
+        } else {
+            wgcSession.stop();
+        }
+    };
+
+    setCaptureFrameCallback([&](ID3D11Texture2D* texture, int64_t timestampHns) {
         if (control.stopRequested || control.paused) {
             return;
         }
@@ -606,7 +799,7 @@ int main(int argc, char* argv[]) {
             desc.BindFlags = 0;
             desc.CPUAccessFlags = 0;
             desc.MiscFlags = 0;
-            if (FAILED(session.device()->CreateTexture2D(&desc, nullptr, &latestFrameTexture))) {
+            if (FAILED(captureDevice->CreateTexture2D(&desc, nullptr, &latestFrameTexture))) {
                 encodeFailed = true;
                 control.stopRequested = true;
                 control.cv.notify_all();
@@ -614,7 +807,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        session.context()->CopyResource(latestFrameTexture.Get(), texture);
+        captureContext->CopyResource(latestFrameTexture.Get(), texture);
         latestFrameTimestampHns = timestampHns;
         if (!firstFrameWritten.exchange(true)) {
             control.cv.notify_all();
@@ -845,14 +1038,14 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (!session.start()) {
+    if (!startCaptureSession()) {
         webcamCapture.stop();
         microphoneCapture.stop();
         loopbackCapture.stop();
         if (audioMixer) {
             audioMixer->stop();
         }
-        std::cerr << "ERROR: Failed to start WGC session" << std::endl;
+        std::cerr << "ERROR: Failed to start native capture session" << std::endl;
         return 1;
     }
 
@@ -879,8 +1072,8 @@ int main(int argc, char* argv[]) {
             if (audioMixer) {
                 audioMixer->stop();
             }
-            session.stop();
-            std::cerr << "ERROR: Timed out waiting for first WGC frame" << std::endl;
+            stopCaptureSession();
+            std::cerr << "ERROR: Timed out waiting for first native capture frame" << std::endl;
             return 1;
         }
     }
@@ -901,8 +1094,8 @@ int main(int argc, char* argv[]) {
     }
 
     std::cerr << "INFO: Native capture shutdown started" << std::endl;
-    session.stop();
-    std::cerr << "INFO: Native capture WGC session stopped" << std::endl;
+    stopCaptureSession();
+    std::cerr << "INFO: Native capture session stopped" << std::endl;
     microphoneCapture.stop();
     loopbackCapture.stop();
     webcamCapture.stop();
@@ -926,7 +1119,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (encodeFailed) {
-        std::cerr << "ERROR: Failed to encode WGC frame" << std::endl;
+        std::cerr << "ERROR: Failed to encode native capture frame" << std::endl;
         return 1;
     }
 

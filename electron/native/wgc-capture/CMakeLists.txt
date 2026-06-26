@@ -40,6 +40,8 @@ add_executable(wgc-capture
   ${VOICE_ENHANCEMENT_DIR}/rnnoise/src/_kiss_fft_guts.h
   src/audio_sample_utils.cpp
   src/audio_sample_utils.h
+  src/desktop_duplication_session.cpp
+  src/desktop_duplication_session.h
   src/dshow_webcam_capture.cpp
   src/dshow_webcam_capture.h
   src/main.cpp
@@ -77,6 +79,7 @@ target_compile_options(wgc-capture PRIVATE
 
 target_link_libraries(wgc-capture PRIVATE
   d3d11
+  dwmapi
   dxgi
   mf
   mfplat
