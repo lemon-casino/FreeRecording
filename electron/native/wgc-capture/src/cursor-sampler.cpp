@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <dwmapi.h>
 #include <gdiplus.h>
 #include <objbase.h>
 
@@ -47,6 +48,28 @@ static void writeJsonLine(const std::string& json) {
     std::lock_guard<std::mutex> lock(g_stdoutMtx);
     std::cout << json << '\n';
     std::cout.flush();
+}
+
+static bool getVisibleWindowBounds(HWND window, RECT& bounds) {
+    if (!window || !IsWindow(window)) {
+        return false;
+    }
+
+    RECT frameBounds{};
+    if (SUCCEEDED(DwmGetWindowAttribute(
+            window,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &frameBounds,
+            sizeof(frameBounds)))) {
+        const int width = frameBounds.right - frameBounds.left;
+        const int height = frameBounds.bottom - frameBounds.top;
+        if (width > 0 && height > 0) {
+            bounds = frameBounds;
+            return true;
+        }
+    }
+
+    return GetWindowRect(window, &bounds) != FALSE;
 }
 
 static std::string jsonEscape(const std::string& s) {
@@ -364,7 +387,7 @@ static void runSamplingLoop(int intervalMs, HWND targetWindow, const CLSID& pngC
         std::string boundsJson = "null";
         if (targetWindow && IsWindow(targetWindow)) {
             RECT r{};
-            if (GetWindowRect(targetWindow, &r)) {
+            if (getVisibleWindowBounds(targetWindow, r)) {
                 const int bw = r.right  - r.left;
                 const int bh = r.bottom - r.top;
                 if (bw > 0 && bh > 0) {

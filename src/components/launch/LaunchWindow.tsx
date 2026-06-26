@@ -101,6 +101,94 @@ const ICON_CONFIG = {
 type IconName = keyof typeof ICON_CONFIG;
 type HudOverlayEdge = "top" | "right" | "bottom" | "left";
 type ResolvedTrayLayout = "horizontal" | "vertical";
+type FloatingMenuStyle = {
+	left: number;
+	top: number;
+	width: number;
+	maxHeight: number;
+};
+
+function clampNumber(value: number, min: number, max: number) {
+	return Math.min(max, Math.max(min, value));
+}
+
+function getAnchoredMenuStyle({
+	triggerRect,
+	panelWidth,
+	panelHeight,
+	minHeight,
+	maxHeight,
+	hudEdge,
+}: {
+	triggerRect: DOMRect;
+	panelWidth: number;
+	panelHeight?: number;
+	minHeight: number;
+	maxHeight: number;
+	hudEdge: HudOverlayEdge;
+}): FloatingMenuStyle {
+	const gap = FLOATING_MENU_GAP;
+	const viewportPadding = 8;
+	const availableAbove = Math.max(0, triggerRect.top - viewportPadding - gap);
+	const availableBelow = Math.max(
+		0,
+		window.innerHeight - triggerRect.bottom - viewportPadding - gap,
+	);
+	const availableLeft = Math.max(0, triggerRect.left - viewportPadding - gap);
+	const availableRight = Math.max(0, window.innerWidth - triggerRect.right - viewportPadding - gap);
+	const verticalSpace =
+		hudEdge === "bottom"
+			? availableAbove
+			: hudEdge === "top"
+				? availableBelow
+				: Math.max(availableAbove + triggerRect.height + availableBelow, minHeight);
+	const desiredHeight =
+		typeof panelHeight === "number" && Number.isFinite(panelHeight) && panelHeight > 0
+			? panelHeight
+			: minHeight;
+	const availableMaxHeight = Math.min(maxHeight, Math.max(1, verticalSpace || maxHeight));
+	const placementHeight = Math.min(availableMaxHeight, Math.max(1, desiredHeight));
+	const maxLeft = Math.max(viewportPadding, window.innerWidth - viewportPadding - panelWidth);
+	const maxTop = Math.max(viewportPadding, window.innerHeight - viewportPadding - placementHeight);
+
+	if (hudEdge === "left" || hudEdge === "right") {
+		const preferRight = hudEdge === "left";
+		const sideLeft =
+			preferRight && availableRight >= panelWidth
+				? triggerRect.right + gap
+				: !preferRight && availableLeft >= panelWidth
+					? triggerRect.left - panelWidth - gap
+					: availableRight >= availableLeft
+						? triggerRect.right + gap
+						: triggerRect.left - panelWidth - gap;
+
+		return {
+			left: clampNumber(sideLeft, viewportPadding, maxLeft),
+			top: clampNumber(
+				triggerRect.top + triggerRect.height / 2 - placementHeight / 2,
+				viewportPadding,
+				maxTop,
+			),
+			width: panelWidth,
+			maxHeight: availableMaxHeight,
+		};
+	}
+
+	const placeAbove =
+		hudEdge === "bottom" || (hudEdge !== "top" && availableAbove >= availableBelow);
+	const centeredLeft = triggerRect.left + triggerRect.width / 2 - panelWidth / 2;
+
+	return {
+		left: clampNumber(centeredLeft, viewportPadding, maxLeft),
+		top: clampNumber(
+			placeAbove ? triggerRect.top - gap - placementHeight : triggerRect.bottom + gap,
+			viewportPadding,
+			maxTop,
+		),
+		width: panelWidth,
+		maxHeight: availableMaxHeight,
+	};
+}
 
 /** Renders the configured icon for a HUD control. */
 function getIcon(name: IconName, className?: string) {
@@ -186,35 +274,19 @@ export function LaunchWindow() {
 	const languageMenuPanelRef = useRef<HTMLDivElement | null>(null);
 	const hudBarRef = useRef<HTMLDivElement | null>(null);
 	const isDraggingHudRef = useRef(false);
-	const [languageMenuStyle, setLanguageMenuStyle] = useState<{
-		right: number;
-		top?: number;
-		bottom?: number;
-		maxHeight: number;
-	}>({
-		right: 12,
+	const [languageMenuStyle, setLanguageMenuStyle] = useState<FloatingMenuStyle>({
+		left: 12,
 		top: 12,
-		maxHeight: 240,
+		width: LANGUAGE_MENU_WIDTH,
+		maxHeight: LANGUAGE_MENU_MAX_HEIGHT,
 	});
-	const [audioMenuStyle, setAudioMenuStyle] = useState<{
-		left: number;
-		top?: number;
-		bottom?: number;
-		width: number;
-		maxHeight: number;
-	}>({
+	const [audioMenuStyle, setAudioMenuStyle] = useState<FloatingMenuStyle>({
 		left: 12,
 		top: 12,
 		width: AUDIO_MENU_WIDTH,
 		maxHeight: AUDIO_MENU_MAX_HEIGHT,
 	});
-	const [webcamMenuStyle, setWebcamMenuStyle] = useState<{
-		left: number;
-		top?: number;
-		bottom?: number;
-		width: number;
-		maxHeight: number;
-	}>({
+	const [webcamMenuStyle, setWebcamMenuStyle] = useState<FloatingMenuStyle>({
 		left: 12,
 		top: 12,
 		width: WEBCAM_MENU_WIDTH,
@@ -419,37 +491,34 @@ export function LaunchWindow() {
 		const updatePosition = () => {
 			if (!languageTriggerRef.current) return;
 			const rect = languageTriggerRef.current.getBoundingClientRect();
-			const gap = FLOATING_MENU_GAP;
-			const viewportPadding = 8;
-			const availableAbove = rect.top - viewportPadding - gap;
-			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
-			const placeAbove = availableAbove >= 140 || availableAbove >= availableBelow;
-			const availableHeight = Math.min(
-				LANGUAGE_MENU_MAX_HEIGHT,
-				Math.max(140, placeAbove ? availableAbove : availableBelow),
+			const measuredHeight = languageMenuPanelRef.current?.getBoundingClientRect().height;
+			setLanguageMenuStyle(
+				getAnchoredMenuStyle({
+					triggerRect: rect,
+					panelWidth: LANGUAGE_MENU_WIDTH,
+					panelHeight: measuredHeight,
+					minHeight: 140,
+					maxHeight: LANGUAGE_MENU_MAX_HEIGHT,
+					hudEdge,
+				}),
 			);
-
-			setLanguageMenuStyle({
-				right: Math.max(viewportPadding, window.innerWidth - rect.right),
-				top: placeAbove
-					? undefined
-					: Math.min(window.innerHeight - viewportPadding - availableHeight, rect.bottom + gap),
-				bottom: placeAbove
-					? Math.max(viewportPadding, window.innerHeight - rect.top + gap)
-					: undefined,
-				maxHeight: availableHeight,
-			});
 		};
 
 		updatePosition();
+		const raf = requestAnimationFrame(updatePosition);
+		const timer = window.setTimeout(updatePosition, 80);
 		window.addEventListener("resize", updatePosition);
 		window.addEventListener("scroll", updatePosition, true);
+		window.addEventListener("hud-menu-layout-change", updatePosition);
 
 		return () => {
+			cancelAnimationFrame(raf);
+			window.clearTimeout(timer);
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
+			window.removeEventListener("hud-menu-layout-change", updatePosition);
 		};
-	}, [isLanguageMenuOpen]);
+	}, [hudEdge, isLanguageMenuOpen]);
 
 	useLayoutEffect(() => {
 		if (!isAudioMenuOpen || !audioTriggerRef.current) return;
@@ -457,46 +526,34 @@ export function LaunchWindow() {
 		const updatePosition = () => {
 			if (!audioTriggerRef.current) return;
 			const rect = audioTriggerRef.current.getBoundingClientRect();
-			const gap = FLOATING_MENU_GAP;
-			const viewportPadding = 8;
-			const availableAbove = rect.top - viewportPadding - gap;
-			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
-			const placeAbove = availableAbove >= 180 || availableAbove >= availableBelow;
-			const panelWidth = audioMenuTargetWidth;
-			const panelHeight =
-				audioMenuTargetHeight ??
-				Math.min(
-					AUDIO_MENU_MAX_HEIGHT,
-					Math.max(180, placeAbove ? availableAbove : availableBelow),
-				);
-			const centeredLeft = rect.left + rect.width / 2 - panelWidth / 2;
-			const left = Math.min(
-				Math.max(viewportPadding, centeredLeft),
-				Math.max(viewportPadding, window.innerWidth - viewportPadding - panelWidth),
+			const measuredHeight = audioMenuPanelRef.current?.getBoundingClientRect().height;
+			setAudioMenuStyle(
+				getAnchoredMenuStyle({
+					triggerRect: rect,
+					panelWidth: audioMenuTargetWidth,
+					panelHeight: measuredHeight || audioMenuTargetHeight,
+					minHeight: 180,
+					maxHeight: AUDIO_MENU_MAX_HEIGHT,
+					hudEdge,
+				}),
 			);
-
-			setAudioMenuStyle({
-				left,
-				top: placeAbove
-					? undefined
-					: Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap),
-				bottom: placeAbove
-					? Math.max(viewportPadding, window.innerHeight - rect.top + gap)
-					: undefined,
-				width: panelWidth,
-				maxHeight: panelHeight,
-			});
 		};
 
 		updatePosition();
+		const raf = requestAnimationFrame(updatePosition);
+		const timer = window.setTimeout(updatePosition, 80);
 		window.addEventListener("resize", updatePosition);
 		window.addEventListener("scroll", updatePosition, true);
+		window.addEventListener("hud-menu-layout-change", updatePosition);
 
 		return () => {
+			cancelAnimationFrame(raf);
+			window.clearTimeout(timer);
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
+			window.removeEventListener("hud-menu-layout-change", updatePosition);
 		};
-	}, [isAudioMenuOpen, audioMenuTargetHeight, audioMenuTargetWidth]);
+	}, [hudEdge, isAudioMenuOpen, audioMenuTargetHeight, audioMenuTargetWidth]);
 
 	useLayoutEffect(() => {
 		if (!isWebcamMenuOpen || !webcamTriggerRef.current) return;
@@ -504,46 +561,34 @@ export function LaunchWindow() {
 		const updatePosition = () => {
 			if (!webcamTriggerRef.current) return;
 			const rect = webcamTriggerRef.current.getBoundingClientRect();
-			const gap = FLOATING_MENU_GAP;
-			const viewportPadding = 8;
-			const availableAbove = rect.top - viewportPadding - gap;
-			const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
-			const placeAbove = availableAbove >= 260 || availableAbove >= availableBelow;
-			const panelWidth = webcamMenuTargetWidth;
-			const panelHeight =
-				webcamMenuTargetHeight ??
-				Math.min(
-					WEBCAM_MENU_MAX_HEIGHT,
-					Math.max(260, placeAbove ? availableAbove : availableBelow),
-				);
-			const centeredLeft = rect.left + rect.width / 2 - panelWidth / 2;
-			const left = Math.min(
-				Math.max(viewportPadding, centeredLeft),
-				Math.max(viewportPadding, window.innerWidth - viewportPadding - panelWidth),
+			const measuredHeight = webcamMenuPanelRef.current?.getBoundingClientRect().height;
+			setWebcamMenuStyle(
+				getAnchoredMenuStyle({
+					triggerRect: rect,
+					panelWidth: webcamMenuTargetWidth,
+					panelHeight: measuredHeight || webcamMenuTargetHeight,
+					minHeight: 260,
+					maxHeight: WEBCAM_MENU_MAX_HEIGHT,
+					hudEdge,
+				}),
 			);
-
-			setWebcamMenuStyle({
-				left,
-				top: placeAbove
-					? undefined
-					: Math.min(window.innerHeight - viewportPadding - panelHeight, rect.bottom + gap),
-				bottom: placeAbove
-					? Math.max(viewportPadding, window.innerHeight - rect.top + gap)
-					: undefined,
-				width: panelWidth,
-				maxHeight: panelHeight,
-			});
 		};
 
 		updatePosition();
+		const raf = requestAnimationFrame(updatePosition);
+		const timer = window.setTimeout(updatePosition, 80);
 		window.addEventListener("resize", updatePosition);
 		window.addEventListener("scroll", updatePosition, true);
+		window.addEventListener("hud-menu-layout-change", updatePosition);
 
 		return () => {
+			cancelAnimationFrame(raf);
+			window.clearTimeout(timer);
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
+			window.removeEventListener("hud-menu-layout-change", updatePosition);
 		};
-	}, [isWebcamMenuOpen, webcamMenuTargetHeight, webcamMenuTargetWidth]);
+	}, [hudEdge, isWebcamMenuOpen, webcamMenuTargetHeight, webcamMenuTargetWidth]);
 
 	useEffect(() => {
 		if (!isAudioMenuOpen || !microphoneEnabled) {
@@ -625,7 +670,10 @@ export function LaunchWindow() {
 	// mount/unmount so measurement re-runs without recreating it or threading mount state through deps.
 	const hudResizeObserverRef = useRef<ResizeObserver | null>(null);
 	useEffect(() => {
-		const observer = new ResizeObserver(() => measureHudSize());
+		const observer = new ResizeObserver(() => {
+			measureHudSize();
+			window.dispatchEvent(new Event("hud-menu-layout-change"));
+		});
 		hudResizeObserverRef.current = observer;
 		if (hudBarRef.current) observer.observe(hudBarRef.current);
 		if (audioMenuPanelRef.current) observer.observe(audioMenuPanelRef.current);
@@ -999,13 +1047,10 @@ export function LaunchWindow() {
 										pointerEvents: "auto",
 										left: `${webcamMenuStyle.left}px`,
 										right: "auto",
-										top: webcamMenuStyle.top === undefined ? undefined : `${webcamMenuStyle.top}px`,
-										bottom:
-											webcamMenuStyle.bottom === undefined
-												? undefined
-												: `${webcamMenuStyle.bottom}px`,
+										top: `${webcamMenuStyle.top}px`,
+										bottom: "auto",
 										maxHeight: `${webcamMenuStyle.maxHeight}px`,
-										width: `${webcamMenuTargetWidth}px`,
+										width: `${webcamMenuStyle.width}px`,
 										height: webcamMenuTargetHeight ? `${webcamMenuTargetHeight}px` : undefined,
 										overflow: "hidden",
 									} as React.CSSProperties
@@ -1130,13 +1175,10 @@ export function LaunchWindow() {
 										pointerEvents: "auto",
 										left: `${audioMenuStyle.left}px`,
 										right: "auto",
-										top: audioMenuStyle.top === undefined ? undefined : `${audioMenuStyle.top}px`,
-										bottom:
-											audioMenuStyle.bottom === undefined
-												? undefined
-												: `${audioMenuStyle.bottom}px`,
+										top: `${audioMenuStyle.top}px`,
+										bottom: "auto",
 										maxHeight: `${audioMenuStyle.maxHeight}px`,
-										width: `${audioMenuTargetWidth}px`,
+										width: `${audioMenuStyle.width}px`,
 										height: audioMenuTargetHeight ? `${audioMenuTargetHeight}px` : undefined,
 										overflow: "hidden",
 									} as React.CSSProperties
@@ -1393,17 +1435,12 @@ export function LaunchWindow() {
 										{
 											WebkitAppRegion: "no-drag",
 											pointerEvents: "auto",
-											right: `${languageMenuStyle.right}px`,
-											top:
-												languageMenuStyle.top === undefined
-													? undefined
-													: `${languageMenuStyle.top}px`,
-											bottom:
-												languageMenuStyle.bottom === undefined
-													? undefined
-													: `${languageMenuStyle.bottom}px`,
+											left: `${languageMenuStyle.left}px`,
+											right: "auto",
+											top: `${languageMenuStyle.top}px`,
+											bottom: "auto",
 											maxHeight: `${languageMenuStyle.maxHeight}px`,
-											width: `${LANGUAGE_MENU_WIDTH}px`,
+											width: `${languageMenuStyle.width}px`,
 										} as React.CSSProperties
 									}
 									onPointerDown={(event) => event.stopPropagation()}

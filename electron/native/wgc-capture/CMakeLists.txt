@@ -99,6 +99,7 @@ target_compile_definitions(cursor-sampler PRIVATE
 target_compile_options(cursor-sampler PRIVATE /EHsc /W4 /utf-8)
 
 target_link_libraries(cursor-sampler PRIVATE
+  dwmapi
   gdi32
   gdiplus
   ole32
